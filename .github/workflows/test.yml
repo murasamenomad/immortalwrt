@@ -52,10 +52,6 @@ jobs:
       id: build
       run: |
         # 编译流程现在非常纯净, 因为所有代码和修改都已就位
-        
-        # 1. 拉取第三方软件包源码 (例如 OpenClash)
-        echo "Cloning external packages..."
-        git clone --depth=1 https://github.com/vernesong/luci-app-openclash.git package/luci-app-openclash
 
         # 2. 更新并安装 Feeds
         echo "Updating and installing feeds..."
