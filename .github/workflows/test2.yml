@@ -14,7 +14,7 @@ on:
 env:
   REPO_URL: https://github.com/immortalwrt/immortalwrt
   REPO_BRANCH: master
-  CONFIG_FILE:.config
+  CONFIG_FILE: .config
   FIRMWARE_PATH: bin/targets/ramips/mt7621
   UPLOAD_FIRMWARE: true
   TZ: Asia/Shanghai
@@ -24,7 +24,7 @@ jobs:
     runs-on: ubuntu-22.04
 
     steps:
-    - name: Checkout
+    - name: Checkout Repository
       uses: actions/checkout@v4
 
     - name: Initialize build environment
@@ -43,11 +43,9 @@ jobs:
         cd openwrt
         # Apply hardware modifications directly
         # RAM MOD for 512MB
-        sed -i 's/reg = <0x0 0x8000000>;/reg = <0x0 0x1c000000>, <0x20000000 0x4000000>;/' target/linux/ramips/dts/mt7621_phicomm_k2p.dts
-        # FLASH MOD for 32MB
-        sed -i 's/reg = <0x50000 0xfb0000>;/reg = <0x50000 0x1fb0000>;/' target/linux/ramips/dts/mt7621_phicomm_k2p.dts
-        # IMAGE_SIZE MOD for 32MB
-        sed -i '/define Device\/phicomm_k2p/a\\tIMAGE_SIZE := 32448k' target/linux/ramips/image/mt7621.mk
+        echo "Applying hardware modifications for 32MB K2P..."
+        sed -i 's/reg = <0xa0000 0xf60000>;/reg = <0xa0000 0x1f60000>;/' target/linux/ramips/dts/mt7621_phicomm_k2p.dts
+        sed -i 's/IMAGE_SIZE := 15744k/IMAGE_SIZE := 32160k/' target/linux/ramips/image/mt7621.mk
 
     - name: Update feeds and apply custom config
       run: |
