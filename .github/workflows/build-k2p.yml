@@ -58,29 +58,34 @@ jobs:
         ./scripts/feeds update -a
         ./scripts/feeds install -a
         echo "Copying custom .config..."
-        cp "../<span class="math-inline">CONFIG\_FILE" \.config
-echo "Expanding \.config silently and non\-interactively\.\.\."
-make silentoldconfig
-\- name\: 下载软件包源码
-id\: download\_packages
-run\: \|
-cd openwrt
-echo "Downloading all package sources\.\.\."
-make download \-j</span>(nproc)
+        cp "../$CONFIG_FILE" .config
+        echo "Expanding .config silently and non-interactively..."
+        make silentoldconfig
+
+    - name: 下载软件包源码
+      id: download_packages
+      run: |
+        cd openwrt
+        echo "Downloading all package sources..."
+        make download -j$(nproc)
 
     - name: 开始编译固件
       id: build_firmware
       run: |
         cd openwrt
-        echo "Building firmware with <span class="math-inline">\(nproc\) threads\.\.\."
-make \-j</span>(nproc) V=s
+        echo "Building firmware with $(nproc) threads..."
+        make -j$(nproc) V=s
 
     - name: 打包固件与软件包
       if: success()
       run: |
-        cd openwrt/<span class="math-inline">\{\{ env\.FIRMWARE\_PATH \}\}
-echo "FIRMWARE\_TAG\=</span>(date +'%Y.%m.%d-%H%M')" >> <span class="math-inline">GITHUB\_ENV
-zip \-r immortalwrt\-k2p\-32m\-</span>{{ env.FIRMWARE_TAG }}.zip .
+        cd openwrt/${{ env.FIRMWARE_PATH }}
+        echo "FIRMWARE_TAG=$(date +'%Y.%m.%d-%H%M')" >> $GITHUB_ENV
+        zip -r immortalwrt-k2p-32m-${{ env.FIRMWARE_TAG }}.zip .
 
     - name: 上传构建产物
-      if
+      if: success()
+      uses: actions/upload-artifact@v4
+      with:
+        name: immortalwrt-k2p-32m-${{ env.FIRMWARE_TAG }}
+        path: openwrt/${{ env.FIRMWARE_PATH }}/*.zip
