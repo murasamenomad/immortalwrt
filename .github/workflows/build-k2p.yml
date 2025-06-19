@@ -1,97 +1,93 @@
 #
 # =================================================================
-# GitHub Actions: 基于你的“原版”文件修正而成
-# 保证能被识别，且内部逻辑完全正确
+# GitHub Actions: 从我的 Fork 仓库编译 K2P 固件
+# 版本: Ultimate Final (基于 Fork 分支，稳定且正确)
 # =================================================================
 #
-name: Build ImmortalWrt for K2P
+name: Build K2P Firmware (Final Corrected Version)
 
 on:
   workflow_dispatch:
     inputs:
       ssh_action:
-        description: 'SSH to the build runner to debug'
+        description: 'SSH 连接到编译环境进行调试'
         required: false
         default: 'false'
-        
+
 env:
-  # 修正了语法：冒号后必须有空格
+  # .config 文件名
   CONFIG_FILE: .config
-  # 定义固件路径，供后续步骤使用
-  FIRMWARE_PATH: bin/targets/ramips/mt7621
+
+  # 上传固件到 Artifacts
   UPLOAD_FIRMWARE: true
+
+  # 时区
   TZ: Asia/Shanghai
 
 jobs:
   build:
     runs-on: ubuntu-22.04
+
     steps:
-      # 步骤 1: 检出你自己的分支 (这是最重要的修正)
-      # 不再使用 REPO_URL 和 REPO_BRANCH, 而是直接检出你的工作分支
-      - name: Checkout your modified branch
-        uses: actions/checkout@v4
-        with:
-          # 自动使用当前仓库，也就是你的 Fork
-          repository: ${{ github.repository }}
-          # 明确指定你的工作分支
-          ref: k2p-mod-24.10
+    - name: 检出我的修改分支 (Checkout My Mod Branch)
+      uses: actions/checkout@v4
+      with:
+        # 关键步骤:
+        # 1. 'repository' 指向你自己的 Fork 仓库 (请替换 YourUsername)
+        # 2. 'ref' 指向你创建的、包含所有修改的分支 (请替换分支名)
+        repository: ${{ github.repository }} # 自动使用当前仓库
+        ref: k2p-mod-24.10                 # !!! 请确保这是你包含修改的分支名 !!!
 
-      # 步骤 2: 初始化编译环境 (来自你的工作版本)
-      - name: Initialize build environment
-        env:
-          DEBIAN_FRONTEND: noninteractive
-        run: |
-          sudo rm -rf /etc/apt/sources.list.d/* /usr/share/dotnet /usr/local/lib/android /opt/ghc
-          sudo -E apt-get -qq update
-          sudo -E apt-get -qq install build-essential asciidoc binutils bzip2 gawk gettext git libncurses5-dev libz-dev patch python3 python2.7 unzip zlib1g-dev lib32gcc-s1 libc6-dev-i386 subversion flex uglifyjs git-core gcc-multilib p7zip p7zip-full msmtp libssl-dev texinfo libglib2.0-dev xmlto qemu-utils upx libelf-dev autoconf automake libtool autopoint device-tree-compiler g++-multilib antlr3 gperf wget swig rsync
-          sudo -E apt-get -qq autoremove --purge
-          sudo -E apt-get -qq clean
+    - name: 初始化编译环境 (Initialize Build Environment)
+      env:
+        DEBIAN_FRONTEND: noninteractive
+      run: |
+        sudo rm -rf /etc/apt/sources.list.d/* /usr/share/dotnet /usr/local/lib/android /opt/ghc
+        sudo -E apt-get -qq update
+        sudo -E apt-get -qq install build-essential asciidoc binutils bzip2 gawk gettext git libncurses5-dev libz-dev patch python3 python2.7 unzip zlib1g-dev lib32gcc-s1 libc6-dev-i386 subversion flex uglifyjs git-core gcc-multilib p7zip p7zip-full msmtp libssl-dev texinfo libglib2.0-dev xmlto qemu-utils upx libelf-dev autoconf automake libtool autopoint device-tree-compiler g++-multilib antlr3 gperf wget swig rsync
+        sudo -E apt-get -qq autoremove --purge
+        sudo -E apt-get -qq clean
 
-      # 步骤 3: 移除原版的 "Clone ImmortalWrt" 步骤
-      # 因为上一步已经检出了你修改过的代码, 无需再克隆和 sed
+    - name: 编译固件 (Build Firmware)
+      id: build
+      run: |
+        # 编译流程现在非常纯净, 因为所有代码和修改都已就位
+        
+        # 1. 拉取第三方软件包源码 (例如 OpenClash)
+        echo "Cloning external packages..."
+        git clone --depth=1 https://github.com/vernesong/luci-app-openclash.git package/luci-app-openclash
 
-      # 步骤 4: 更新 Feeds, 应用配置, 添加第三方包 (关键修正)
-      - name: Update feeds, apply config, and add packages
-        run: |
-          # 因为代码已在根目录, 无需 "cd openwrt"
-          ./scripts/feeds update -a
-          ./scripts/feeds install -a
-          # 复制你的 .config 文件 (已修正命令)
-          cp -f $CONFIG_FILE .config
-          # 拉取 OpenClash 源码
-          git clone --depth=1 https://github.com/vernesong/luci-app-openclash.git package/luci-app-openclash
-          
-      # 步骤 5: 下载源码 (移除了致命的 make defconfig)
-      - name: Download package sources
-        run: |
-          # 无需 "cd openwrt"
-          make download -j$(nproc)
+        # 2. 更新并安装 Feeds
+        echo "Updating and installing feeds..."
+        ./scripts/feeds update -a
+        ./scripts/feeds install -a
 
-      # 步骤 6: 编译固件
-      - name: Build the firmware
-        run: |
-          # 无需 "cd openwrt"
-          echo -e "$(nproc) thread build."
-          make -j$(nproc) V=s
+        # 3. 应用你的 .config 文件
+        echo "Applying custom .config..."
+        # 使用 -f 强制覆盖，避免意外
+        cp -f $CONFIG_FILE .config
+        
+        # 4. 下载编译所需的全部源码
+        echo "Downloading all sources for compilation..."
+        make download -j$(nproc)
+        
+        # 5. 开始编译固件
+        echo "Building firmware with $(nproc) threads..."
+        make -j$(nproc) V=s
 
-      # 步骤 7: 打包固件 (已修正路径和命令)
-      - name: Package firmware
-        # 修正了 if 条件的空格
-        if: env.UPLOAD_FIRMWARE == 'true' && !cancelled()
-        run: |
-          # 无需 "cd openwrt/...", 直接使用定义好的变量
-          cd ${{ env.FIRMWARE_PATH }}
-          rm -rf packages
-          echo "FIRMWARE_TAG=$(date +'%Y.%m.%d-%H%M')-K2P-MOD" >> $GITHUB_ENV
-          # 修正了 zip 命令结尾多余的点
-          zip -r immortalwrt-k2p-${{ env.FIRMWARE_TAG }}.zip .
+    - name: 打包固件 (Package Firmware)
+      if: env.UPLOAD_FIRMWARE == 'true' && !cancelled()
+      run: |
+        FIRMWARE_PATH="bin/targets/ramips/mt7621"
+        echo "Packaging firmware from: $FIRMWARE_PATH"
+        cd $FIRMWARE_PATH
+        rm -rf packages
+        echo "FIRMWARE_TAG=$(date +'%Y.%m.%d-%H%M')-K2P-MOD-24.10" >> $GITHUB_ENV
+        zip -r immortalwrt-k2p-${{ env.FIRMWARE_TAG }}.zip .
 
-      # 步骤 8: 上传固件 (已修正路径和命令)
-      - name: Upload firmware artifact
-        # 修正了 if 条件的空格
-        if: env.UPLOAD_FIRMWARE == 'true' && !cancelled()
-        uses: actions/upload-artifact@v4
-        with:
-          name: immortalwrt-k2p-${{ env.FIRMWARE_TAG }}
-          # 明确指定正确的上传路径
-          path: ${{ env.FIRMWARE_PATH }}/*.zip
+    - name: 上传固件到 Artifacts (Upload Firmware)
+      if: env.UPLOAD_FIRMWARE == 'true' && !cancelled()
+      uses: actions/upload-artifact@v4
+      with:
+        name: immortalwrt-k2p-${{ env.FIRMWARE_TAG }}
+        path: bin/targets/ramips/mt7621/*.zip
