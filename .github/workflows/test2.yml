@@ -46,7 +46,7 @@ jobs:
         echo "Applying hardware modifications for 32MB K2P..."
         sed -i 's/reg = <0xa0000 0xf60000>;/reg = <0xa0000 0x1f60000>;/' target/linux/ramips/dts/mt7621_phicomm_k2p.dts
         sed -i 's/IMAGE_SIZE := 15744k/IMAGE_SIZE := 32160k/' target/linux/ramips/image/mt7621.mk
-        
+
     - name: Update feeds and apply custom config
       run: |
         cd openwrt
