@@ -81,7 +81,6 @@ jobs:
       if: env.UPLOAD_FIRMWARE == 'true' && !cancelled()
       run: |
         cd openwrt/${{ env.FIRMWARE_PATH }}
-        rm -rf packages
         echo "FIRMWARE_TAG=$(date +'%Y.%m.%d-%H%M')" >> $GITHUB_ENV
         zip -r immortalwrt-k2p-${{ env.FIRMWARE_TAG }}.zip .
 
