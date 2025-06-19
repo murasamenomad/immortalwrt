@@ -1,0 +1,65 @@
+name: Build ImmortalWrt for K2P
+
+on:
+  workflow_dispatch: {}  # 简化触发定义
+
+env:
+  REPO_URL: https://github.com/immortalwrt/immortalwrt
+  REPO_BRANCH: master
+  CONFIG_FILE: .config
+  FIRMWARE_PATH: bin/targets/ramips/mt7621
+  UPLOAD_FIRMWARE: true
+  TZ: Asia/Shanghai
+
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Setup Environment
+        run: |
+          sudo apt-get update -y
+          sudo apt-get install -y build-essential asciidoc binutils bzip2 gawk gettext git \
+          libncurses5-dev libz-dev patch python3 unzip zlib1g-dev subversion flex uglifyjs \
+          git-core gcc-multilib p7zip p7zip-full msmtp libssl-dev texinfo libglib2.0-dev \
+          xmlto qemu-utils upx libelf-dev autoconf automake libtool device-tree-compiler \
+          g++-multilib antlr3 gperf wget swig rsync
+
+      - name: Clone Source
+        run: |
+          git clone --depth 1 -b $REPO_BRANCH $REPO_URL openwrt
+          cd openwrt
+          # 32MB 硬件修改
+          sed -i 's/reg = <0xa0000 0xf60000>;/reg = <0xa0000 0x1f60000>;/' target/linux/ramips/dts/mt7621_phicomm_k2p.dts
+          sed -i 's/IMAGE_SIZE := 15744k/IMAGE_SIZE := 32160k/' target/linux/ramips/image/mt7621.mk
+
+      - name: Configure Build
+        run: |
+          cd openwrt
+          [ -f "../$CONFIG_FILE" ] && cp "../$CONFIG_FILE" .config
+          ./scripts/feeds update -a
+          ./scripts/feeds install -a
+          make defconfig
+
+      - name: Build Firmware
+        run: |
+          cd openwrt
+          make download -j$(nproc)
+          make -j$(nproc) V=s
+
+      - name: Package Firmware
+        if: env.UPLOAD_FIRMWARE == 'true'
+        run: |
+          cd openwrt/${{ env.FIRMWARE_PATH }}
+          FIRMWARE_TAG=$(date +'%Y%m%d-%H%M%S')
+          zip -r "immortalwrt-k2p-$FIRMWARE_TAG.zip" .
+          echo "ZIP_PATH=openwrt/${{ env.FIRMWARE_PATH }}/immortalwrt-k2p-$FIRMWARE_TAG.zip" >> $GITHUB_ENV
+
+      - name: Upload Artifact
+        if: env.UPLOAD_FIRMWARE == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: immortalwrt-k2p-firmware
+          path: ${{ env.ZIP_PATH }}
