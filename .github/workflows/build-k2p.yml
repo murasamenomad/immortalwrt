@@ -1,0 +1,107 @@
+#
+# GitHub Actions: 优化版 ImmortalWrt 固件编译流程
+# For Phicomm K2P (32MB & USB3.0 Mod)
+#
+name: Build ImmortalWrt for K2P (Optimized)
+
+on:
+  workflow_dispatch:
+    inputs:
+      ssh_action:
+        description: 'SSH to the build runner for debugging'
+        required: false
+        default: 'false'
+
+env:
+  REPO_URL: https://github.com/immortalwrt/immortalwrt
+  REPO_BRANCH: master
+  CONFIG_FILE: .config
+  FIRMWARE_PATH: bin/targets/ramips/mt7621
+  UPLOAD_FIRMWARE: true
+  TZ: Asia/Shanghai
+
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+
+    steps:
+    - name: Checkout Repository
+      uses: actions/checkout@v4
+      # 此步骤会检出你的 GitHub 仓库, 仓库根目录下的 .config 文件已就位
+
+    - name: 初始化编译环境
+      env:
+        DEBIAN_FRONTEND: noninteractive
+      run: |
+        sudo rm -rf /etc/apt/sources.list.d/* /usr/share/dotnet /usr/local/lib/android /opt/ghc
+        sudo -E apt-get -qq update
+        sudo -E apt-get -qq install build-essential asciidoc binutils bzip2 gawk gettext git libncurses5-dev libz-dev patch python3 python2.7 unzip zlib1g-dev lib32gcc-s1 libc6-dev-i386 subversion flex uglifyjs git-core gcc-multilib p7zip p7zip-full msmtp libssl-dev texinfo libglib2.0-dev xmlto qemu-utils upx libelf-dev autoconf automake libtool autopoint device-tree-compiler g++-multilib antlr3 gperf wget swig rsync
+        sudo -E apt-get -qq autoremove --purge
+        sudo -E apt-get -qq clean
+
+    - name: 克隆并准备 ImmortalWrt 源码
+      id: prepare_source
+      run: |
+        git clone --depth 1 -b $REPO_BRANCH $REPO_URL openwrt
+        cd openwrt
+        
+        # --- 关键改动 1: 添加 OpenClash 软件包 Feed ---
+        # 官方源没有 OpenClash, 必须手动添加它的上游仓库地址
+        echo "Adding OpenClash source feed..."
+        echo 'src-git-full openclash https://github.com/vernesong/OpenClash.git' >> feeds.conf.default
+        
+        # --- 关键改动 2: 应用你的硬件修改 ---
+        # 这一步与你原来的一致，保持不变
+        echo "Applying hardware modifications for 32MB K2P..."
+        sed -i 's/reg = <0xa0000 0xf60000>;/reg = <0xa0000 0x1f60000>;/' target/linux/ramips/dts/mt7621_phicomm_k2p.dts
+        sed -i 's/IMAGE_SIZE := 15744k/IMAGE_SIZE := 32160k/' target/linux/ramips/image/mt7621.mk
+        
+    - name: 更新 Feeds 并应用你的配置
+      id: configure_build
+      run: |
+        cd openwrt
+        
+        # 更新并安装所有 Feeds (包括刚刚添加的 OpenClash)
+        echo "Updating and installing feeds..."
+        ./scripts/feeds update -a
+        ./scripts/feeds install -a
+        
+        # --- 关键改动 3: 直接应用你的 .config 文件 ---
+        # 这是整个流程的核心, 我们要让编译系统完全遵从你的 .config
+        echo "Copying custom .config..."
+        cp "../$CONFIG_FILE" .config
+        
+        # --- 关键改动 4: 移除 `make defconfig` ---
+        # 我们使用 `make menuconfig` 的非交互式等价命令来静默扩展配置,
+        # 这比 `make defconfig` 更安全, 能更好地保留你的 `=y` 和 `=m` 设置。
+        echo "Expanding .config silently..."
+        make menuconfig V=s > /dev/null 2>&1 || true
+
+    - name: 下载软件包源码
+      id: download_packages
+      run: |
+        cd openwrt
+        echo "Downloading all package sources..."
+        make download -j$(nproc)
+
+    - name: 开始编译固件
+      id: build_firmware
+      run: |
+        cd openwrt
+        echo "Building firmware with $(nproc) threads..."
+        make -j$(nproc) V=s
+
+    - name: 打包固件与软件包
+      if: env.UPLOAD_FIRMWARE == 'true' && !cancelled()
+      run: |
+        cd openwrt/${{ env.FIRMWARE_PATH }}
+        echo "FIRMWARE_TAG=$(date +'%Y.%m.%d-%H%M')" >> $GITHUB_ENV
+        # 将所有生成的文件 (包括固件和 packages 目录) 打包到一个 zip 文件中
+        zip -r immortalwrt-k2p-32m-${{ env.FIRMWARE_TAG }}.zip .
+
+    - name: 上传构建产物
+      if: env.UPLOAD_FIRMWARE == 'true' && !cancelled()
+      uses: actions/upload-artifact@v4
+      with:
+        name: immortalwrt-k2p-32m-${{ env.FIRMWARE_TAG }}
+        path: openwrt/${{ env.FIRMWARE_PATH }}/*.zip
