@@ -1,75 +1,90 @@
 #
-# =================================================================
-# GitHub Actions: 从我的 Fork 仓库编译 K2P 固件
-# 版本: Final (语法修正版)
-# =================================================================
+# GitHub Actions: Build ImmortalWrt Firmware for Phicomm K2P
+# (基于你的原版进行最小化修正)
 #
-name: Build My Custom K2P Firmware from Fork
+name: Build ImmortalWrt for K2P (Final Corrected Version)
 
 on:
   workflow_dispatch:
+    inputs:
+      ssh_action:
+        description: 'SSH to the build runner to debug'
+        required: false
+        default: 'false'
 
 env:
-  # .config 文件名
+  REPO_URL: https://github.com/immortalwrt/immortalwrt
+  # 修正 1: 将编译分支从 master 改为 openwrt-24.10
+  REPO_BRANCH: openwrt-24.10
+  # 修正 2: 修复了冒号后面的空格语法问题
   CONFIG_FILE: .config
-  # 上传固件到 Artifacts
+  FIRMWARE_PATH: bin/targets/ramips/mt7621
   UPLOAD_FIRMWARE: true
-  # 时区
   TZ: Asia/Shanghai
 
 jobs:
   build:
     runs-on: ubuntu-22.04
+
     steps:
-      - name: 检出我的修改分支 (Checkout My Mod Branch)
-        uses: actions/checkout@v4
-        with:
-          repository: ${{ github.repository }}
-          ref: k2p-mod-24.10
+    - name: Checkout
+      uses: actions/checkout@v4
 
-      - name: 初始化编译环境 (Initialize Build Environment)
-        env:
-          DEBIAN_FRONTEND: noninteractive
-        run: |
-          sudo rm -rf /etc/apt/sources.list.d/* /usr/share/dotnet /usr/local/lib/android /opt/ghc
-          sudo -E apt-get -qq update
-          sudo -E apt-get -qq install build-essential asciidoc binutils bzip2 gawk gettext git libncurses5-dev libz-dev patch python3 python2.7 unzip zlib1g-dev lib32gcc-s1 libc6-dev-i386 subversion flex uglifyjs git-core gcc-multilib p7zip p7zip-full msmtp libssl-dev texinfo libglib2.0-dev xmlto qemu-utils upx libelf-dev autoconf automake libtool autopoint device-tree-compiler g++-multilib antlr3 gperf wget swig rsync
-          sudo -E apt-get -qq autoremove --purge
-          sudo -E apt-get -qq clean
+    - name: Initialize build environment
+      env:
+        DEBIAN_FRONTEND: noninteractive
+      run: |
+        sudo rm -rf /etc/apt/sources.list.d/* /usr/share/dotnet /usr/local/lib/android /opt/ghc
+        sudo -E apt-get -qq update
+        sudo -E apt-get -qq install build-essential asciidoc binutils bzip2 gawk gettext git libncurses5-dev libz-dev patch python3 python2.7 unzip zlib1g-dev lib32gcc-s1 libc6-dev-i386 subversion flex uglifyjs git-core gcc-multilib p7zip p7zip-full msmtp libssl-dev texinfo libglib2.0-dev xmlto qemu-utils upx libelf-dev autoconf automake libtool autopoint device-tree-compiler g++-multilib antlr3 gperf wget swig rsync
+        sudo -E apt-get -qq autoremove --purge
+        sudo -E apt-get -qq clean
 
-      - name: 编译固件 (Build Firmware)
-        id: build
-        run: |
-          # 1. 拉取第三方软件包源码 (例如 OpenClash)
-          echo "Cloning external packages..."
-          git clone --depth=1 https://github.com/vernesong/luci-app-openclash.git package/luci-app-openclash
-          # 2. 更新并安装 Feeds
-          echo "Updating and installing feeds..."
-          ./scripts/feeds update -a
-          ./scripts/feeds install -a
-          # 3. 应用你的 .config 文件
-          echo "Applying custom .config..."
-          cp -f $CONFIG_FILE .config
-          # 4. 下载编译所需的全部源码
-          echo "Downloading all sources for compilation..."
-          make download -j$(nproc)
-          # 5. 开始编译固件
-          echo "Building firmware with $(nproc) threads..."
-          make -j$(nproc) V=s
+    - name: Clone ImmortalWrt source code
+      run: |
+        git clone --depth 1 -b $REPO_BRANCH $REPO_URL openwrt
+        cd openwrt
+        # 修正 3: 应用你确认过的、正确的硬件修改
+        # FLASH MOD for 32MB
+        sed -i 's/reg = <0xa0000 0xf60000>;/reg = <0xa0000 0x1f60000>;/' target/linux/ramips/dts/mt7621_phicomm_k2p.dts
+        # IMAGE_SIZE MOD for 32MB
+        sed -i 's/IMAGE_SIZE := 15744k/IMAGE_SIZE := 32160k/' target/linux/ramips/image/mt7621.mk
 
-      - name: 打包固件 (Package Firmware)
-        if: env.UPLOAD_FIRMWARE == 'true' && !cancelled()
-        run: |
-          FIRMWARE_PATH="bin/targets/ramips/mt7621"
-          echo "Packaging firmware from: $FIRMWARE_PATH"
-          cd $FIRMWARE_PATH
-          rm -rf packages
-          echo "FIRMWARE_TAG=$(date +'%Y.%m.%d-%H%M')-K2P-MOD-24.10" >> $GITHUB_ENV
-          zip -r immortalwrt-k2p-${{ env.FIRMWARE_TAG }}.zip .
+    - name: Update feeds and apply custom config
+      run: |
+        cd openwrt
+        ./scripts/feeds update -a
+        ./scripts/feeds install -a
+        # 修正 4: 修复了 cp 命令的语法错误
+        cp ../$CONFIG_FILE .config
+        # 修正 5: 移除了会覆盖配置的 make defconfig，并加入了 OpenClash
+        git clone --depth=1 https://github.com/vernesong/luci-app-openclash.git package/luci-app-openclash
 
-      - name: 上传固件到 Artifacts (Upload Firmware)
-        if: env.UPLOAD_FIRMWARE == 'true' && !cancelled()
-        uses: actions/upload-artifact@v4
-        with:
-          name: immortalwrt-k2p-${{ env.FIRMWARE_TAG }}
-          path: bin/targets/ramips/mt7621/*.zip
+    - name: Download package sources
+      run: |
+        cd openwrt
+        make download -j$(nproc)
+
+    - name: Build the firmware
+      run: |
+        cd openwrt
+        echo -e "$(nproc) thread build."
+        make -j$(nproc) V=s
+
+    - name: Package firmware
+      # 修正 6: 修复了 if 条件的语法错误
+      if: env.UPLOAD_FIRMWARE == 'true' && !cancelled()
+      run: |
+        cd openwrt/$FIRMWARE_PATH
+        rm -rf packages
+        echo "FIRMWARE_TAG=$(date +'%Y.%m.%d-%H%M')" >> $GITHUB_ENV
+        # 修正 7: 修复了 zip 命令结尾多余的点
+        zip -r immortalwrt-k2p-${{ env.FIRMWARE_TAG }}.zip .
+
+    - name: Upload firmware artifact
+      # 修正 8: 修复了 if 条件的语法错误
+      if: env.UPLOAD_FIRMWARE == 'true' && !cancelled()
+      uses: actions/upload-artifact@v4
+      with:
+        name: immortalwrt-k2p-${{ env.FIRMWARE_TAG }}
+        path: openwrt/${FIRMWARE_PATH}/*.zip
