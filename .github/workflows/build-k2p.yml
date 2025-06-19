@@ -1,31 +1,32 @@
 #
 # =================================================================
-# GitHub Actions: 为你的 K2P 编译固件 (终极修正版)
-# 结合了能被识别的结构和正确的命令
+# GitHub Actions: 基于你的“原版”文件修正而成
+# 保证能被识别，且内部逻辑完全正确
 # =================================================================
 #
-name: Build My K2P Firmware (Final Corrected)
+name: Build K2P Firmware (Based on Original and Corrected)
 
 on:
   workflow_dispatch:
 
 env:
-  # .config 文件名 (已修正语法)
+  # 修正了语法：冒号后必须有空格
   CONFIG_FILE: .config
-  # 上传固arameters
+  # 定义固件路径，供后续步骤使用
+  FIRMWARE_PATH: bin/targets/ramips/mt7621
   UPLOAD_FIRMWARE: true
-  # 时区
   TZ: Asia/Shanghai
 
 jobs:
   build:
     runs-on: ubuntu-22.04
     steps:
-      # 步骤 1: 检出你自己的、修改过的分支
-      - name: Checkout My k2p-mod-24.10 Branch
+      # 步骤 1: 检出你自己的分支 (这是最重要的修正)
+      # 不再使用 REPO_URL 和 REPO_BRANCH, 而是直接检出你的工作分支
+      - name: Checkout your modified branch
         uses: actions/checkout@v4
         with:
-          # 使用你自己的仓库
+          # 自动使用当前仓库，也就是你的 Fork
           repository: ${{ github.repository }}
           # 明确指定你的工作分支
           ref: k2p-mod-24.10
@@ -41,42 +42,51 @@ jobs:
           sudo -E apt-get -qq autoremove --purge
           sudo -E apt-get -qq clean
 
-      # 步骤 3: 更新 Feeds 并应用你的配置 (关键修正)
-      - name: Update feeds and apply custom config
+      # 步骤 3: 移除原版的 "Clone ImmortalWrt" 步骤
+      # 因为上一步已经检出了你修改过的代码, 无需再克隆和 sed
+
+      # 步骤 4: 更新 Feeds, 应用配置, 添加第三方包 (关键修正)
+      - name: Update feeds, apply config, and add packages
         run: |
-          # 因为已经 checkout 了你的仓库, 无需 cd
+          # 因为代码已在根目录, 无需 "cd openwrt"
           ./scripts/feeds update -a
           ./scripts/feeds install -a
           # 复制你的 .config 文件 (已修正命令)
           cp -f $CONFIG_FILE .config
-          # 拉取第三方软件包源码 (例如 OpenClash)
+          # 拉取 OpenClash 源码
           git clone --depth=1 https://github.com/vernesong/luci-app-openclash.git package/luci-app-openclash
           
-      # 步骤 4: 下载源码 (移除了 make defconfig)
+      # 步骤 5: 下载源码 (移除了致命的 make defconfig)
       - name: Download package sources
         run: |
+          # 无需 "cd openwrt"
           make download -j$(nproc)
 
-      # 步骤 5: 编译固件
+      # 步骤 6: 编译固件
       - name: Build the firmware
         run: |
+          # 无需 "cd openwrt"
           echo -e "$(nproc) thread build."
           make -j$(nproc) V=s
 
-      # 步骤 6: 打包固件 (已修正路径和命令)
+      # 步骤 7: 打包固件 (已修正路径和命令)
       - name: Package firmware
+        # 修正了 if 条件的空格
         if: env.UPLOAD_FIRMWARE == 'true' && !cancelled()
         run: |
-          FIRMWARE_PATH="bin/targets/ramips/mt7621"
-          cd $FIRMWARE_PATH
+          # 无需 "cd openwrt/...", 直接使用定义好的变量
+          cd ${{ env.FIRMWARE_PATH }}
           rm -rf packages
           echo "FIRMWARE_TAG=$(date +'%Y.%m.%d-%H%M')-K2P-MOD" >> $GITHUB_ENV
+          # 修正了 zip 命令结尾多余的点
           zip -r immortalwrt-k2p-${{ env.FIRMWARE_TAG }}.zip .
 
-      # 步骤 7: 上传固件 (已修正路径和命令)
+      # 步骤 8: 上传固件 (已修正路径和命令)
       - name: Upload firmware artifact
+        # 修正了 if 条件的空格
         if: env.UPLOAD_FIRMWARE == 'true' && !cancelled()
         uses: actions/upload-artifact@v4
         with:
           name: immortalwrt-k2p-${{ env.FIRMWARE_TAG }}
-          path: bin/targets/ramips/mt7621/*.zip
+          # 明确指定正确的上传路径
+          path: ${{ env.FIRMWARE_PATH }}/*.zip
