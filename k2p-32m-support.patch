@@ -1,0 +1,31 @@
+--- a/target/linux/ramips/dts/mt7621_phicomm_k2p.dts
++++ b/target/linux/ramips/dts/mt7621_phicomm_k2p.dts
+@@ -111,7 +111,7 @@
+ 			partitions {
+ 				compatible = "fixed-partitions";
+ 				#address-cells = ;
+-				#size-cells = ;
++				#size-cells = ; 
+ 
+ 				partition@0 {
+ 					label = "config";
+@@ -126,7 +126,7 @@
+ 
+ 				partition@a0000 {
+ 					label = "firmware";
+-					reg = <0xa0000 0xf60000>;
++					reg = <0xa0000 0x1f60000>;
+ 					compatible = "denx,uimage";
+ 				};
+ 			};
+--- a/target/linux/ramips/image/mt7621.mk
++++ b/target/linux/ramips/image/mt7621.mk
+@@ -13,7 +13,7 @@
+ IMAGE_SIZE := 24576k
+ 
+ define Device/phicomm_k2p
+-  IMAGE_SIZE := 15744k
++  IMAGE_SIZE := 32160k
+   DEVICE_VENDOR := Phicomm
+   DEVICE_MODEL := K2P
+   DEVICE_PACKAGES := kmod-mt7615e kmod-mt7615-firmware
