@@ -1,0 +1,135 @@
+name: Build ImmortalWrt 24.10 for K2P (512MB+32MB)
+
+on:
+  workflow_dispatch:
+    inputs:
+      debug_ssh:
+        description: 'Enable SSH for debugging'
+        required: false
+        default: 'false'
+
+env:
+  REPO_URL: https://github.com/immortalwrt/immortalwrt
+  REPO_BRANCH: openwrt-24.10  # 使用 24.10 分支
+  FIRMWARE_PATH: bin/targets/ramips/mt7621
+  UPLOAD_FIRMWARE: true
+  TZ: Asia/Shanghai
+
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+    
+    # 添加 SSH 调试支持
+    if: ${{ github.event.inputs.debug_ssh != 'true' }}
+    
+    steps:
+      # 步骤 1: 检出配置仓库
+      - name: Checkout Configuration
+        uses: actions/checkout@v4
+        with:
+          path: config-repo  # 单独存放配置文件
+      
+      # 步骤 2: 初始化编译环境
+      - name: Setup Build Environment
+        env:
+          DEBIAN_FRONTEND: noninteractive
+        run: |
+          sudo apt-get update -y
+          sudo apt-get install -y build-essential asciidoc binutils bzip2 gawk gettext git \
+          libncurses5-dev libz-dev patch python3 python3-distutils unzip zlib1g-dev \
+          subversion flex uglifyjs git-core gcc-multilib p7zip p7zip-full msmtp libssl-dev \
+          texinfo libglib2.0-dev xmlto qemu-utils upx libelf-dev autoconf automake libtool \
+          autopoint device-tree-compiler g++-multilib antlr3 gperf wget swig rsync \
+          ccache zstd
+          sudo apt-get clean
+          sudo rm -rf /var/lib/apt/lists/*
+          
+          # 设置编译缓存
+          echo "CCACHE_DIR=$GITHUB_WORKSPACE/ccache" >> $GITHUB_ENV
+          echo "CCACHE_MAXSIZE=1G" >> $GITHUB_ENV
+          mkdir -p $CCACHE_DIR
+      
+      # 步骤 3: 克隆 ImmortalWrt 24.10 源码
+      - name: Clone ImmortalWrt Source
+        run: |
+          git clone --depth 1 -b $REPO_BRANCH $REPO_URL openwrt
+          cd openwrt
+
+          # 应用 32MB Flash 修改
+          sed -i 's/reg = <0xa0000 0xf60000>;/reg = <0xa0000 0x1f60000>;/' target/linux/ramips/dts/mt7621_phicomm_k2p.dts
+          
+          # 修改固件大小限制
+          sed -i 's/IMAGE_SIZE := 15744k/IMAGE_SIZE := 32160k/' target/linux/ramips/image/mt7621.mk
+      
+      # 步骤 4: 应用自定义配置
+      - name: Apply Custom Configuration
+        run: |
+          cd openwrt
+          
+          # 复制自定义 .config 文件
+          if [ -f "../config-repo/.config" ]; then
+            cp "../config-repo/.config" .
+            echo "Custom .config applied"
+          else
+            echo "No custom .config found, using default"
+          fi
+          
+          # 添加 OpenClash 插件
+          git clone --depth=1 https://github.com/vernesong/luci-app-openclash.git package/luci-app-openclash
+      
+      # 步骤 5: 更新 feeds 和编译配置
+      - name: Configure Build
+        run: |
+          cd openwrt
+          ./scripts/feeds update -a
+          ./scripts/feeds install -a
+          make defconfig
+      
+      # 步骤 6: 下载依赖包
+      - name: Download Packages
+        run: |
+          cd openwrt
+          make -j$(nproc) download
+      
+      # 步骤 7: 编译固件 (使用缓存加速)
+      - name: Build Firmware
+        run: |
+          cd openwrt
+          export PATH="/usr/lib/ccache:$PATH"
+          make -j$(($(nproc)+1)) V=s CCACHE=1
+      
+      # 步骤 8: 打包固件
+      - name: Package Firmware
+        if: env.UPLOAD_FIRMWARE == 'true' && !cancelled()
+        run: |
+          cd openwrt/${{ env.FIRMWARE_PATH }}
+          
+          # 移除不必要的文件
+          rm -rf packages
+          
+          # 生成固件标签
+          FIRMWARE_TAG="24.10-$(date +'%Y%m%d')-K2P-512MB-32MB"
+          echo "FIRMWARE_TAG=$FIRMWARE_TAG" >> $GITHUB_ENV
+          echo "ZIP_FILE=immortalwrt-k2p-$FIRMWARE_TAG.zip" >> $GITHUB_ENV
+          
+          # 创建固件压缩包
+          zip -r "$ZIP_FILE" .
+          echo "ZIP_PATH=$PWD/$ZIP_FILE" >> $GITHUB_ENV
+      
+      # 步骤 9: 上传固件
+      - name: Upload Firmware Artifact
+        if: env.UPLOAD_FIRMWARE == 'true' && !cancelled()
+        uses: actions/upload-artifact@v4
+        with:
+          name: immortalwrt-k2p-${{ env.FIRMWARE_TAG }}
+          path: ${{ env.ZIP_PATH }}
+  
+  # 可选: SSH 调试任务
+  debug:
+    if: ${{ github.event.inputs.debug_ssh == 'true' }}
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Setup SSH
+        uses: mxschmitt/action-tmate@v3
+        with:
+          limit-access-to-actor: true
