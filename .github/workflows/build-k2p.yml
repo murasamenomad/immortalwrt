@@ -1,16 +1,10 @@
 #
-# GitHub Actions: v4 - 最终完整正确版
-# For Phicomm K2P (32MB & USB3.0 Mod)
+# GitHub Actions: v5 - 带调试标记的最终版
 #
-name: Build ImmortalWrt for K2P (v4 - Final)
+name: Build ImmortalWrt for K2P (v5 - Debug)
 
 on:
   workflow_dispatch:
-    inputs:
-      ssh_action:
-        description: 'SSH to the build runner for debugging'
-        required: false
-        default: 'false'
 
 env:
   REPO_URL: https://github.com/immortalwrt/immortalwrt
@@ -49,9 +43,13 @@ jobs:
         sed -i 's/reg = <0xa0000 0xf60000>;/reg = <0xa0000 0x1f60000>;/' target/linux/ramips/dts/mt7621_phicomm_k2p.dts
         sed -i 's/IMAGE_SIZE := 15744k/IMAGE_SIZE := 32160k/' target/linux/ramips/image/mt7621.mk
         
-    - name: 更新 Feeds 并应用配置 (已修正命令)
+    - name: 更新 Feeds 并应用配置 (带V5调试标记)
       id: configure_build
       run: |
+        echo "=================================================="
+        echo "===       RUNNING DEBUG VERSION V5             ==="
+        echo "===   If you see this, the YML file is NEW!    ==="
+        echo "=================================================="
         cd openwrt
         echo "Updating and installing feeds..."
         ./scripts/feeds update -a
