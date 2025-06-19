@@ -2495,7 +2495,7 @@ TARGET_DEVICES += oraybox_x3a
 
 define Device/phicomm_k2p
   $(Device/dsa-migration)
-  IMAGE_SIZE := 15744k
+  IMAGE_SIZE := 32160k
   DEVICE_VENDOR := Phicomm
   DEVICE_MODEL := K2P
   DEVICE_ALT0_VENDOR := Phicomm
