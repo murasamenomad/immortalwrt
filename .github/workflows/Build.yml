@@ -74,8 +74,6 @@ jobs:
             echo "No custom .config found, using default"
           fi
           
-          # 添加 OpenClash 插件
-          git clone --depth=1 https://github.com/vernesong/luci-app-openclash.git package/luci-app-openclash
       
       # 步骤 5: 更新 feeds 和编译配置
       - name: Configure Build
