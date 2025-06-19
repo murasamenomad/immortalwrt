@@ -4,11 +4,16 @@
 # 保证能被识别，且内部逻辑完全正确
 # =================================================================
 #
-name: Build K2P Firmware (Based on Original and Corrected)
+name: Build ImmortalWrt for K2P
 
 on:
   workflow_dispatch:
-
+    inputs:
+      ssh_action:
+        description: 'SSH to the build runner to debug'
+        required: false
+        default: 'false'
+        
 env:
   # 修正了语法：冒号后必须有空格
   CONFIG_FILE: .config
