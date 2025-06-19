@@ -1,0 +1,93 @@
+#
+# =================================================================
+# GitHub Actions: 从我的 Fork 仓库编译 K2P 固件
+# 版本: Ultimate Final (基于 Fork 分支，稳定且正确)
+# =================================================================
+#
+name: Build My Custom K2P Firmware from Fork
+
+on:
+  workflow_dispatch:
+    inputs:
+      ssh_action:
+        description: 'SSH 连接到编译环境进行调试'
+        required: false
+        default: 'false'
+
+env:
+  # .config 文件名
+  CONFIG_FILE: .config
+
+  # 上传固件到 Artifacts
+  UPLOAD_FIRMWARE: true
+
+  # 时区
+  TZ: Asia/Shanghai
+
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+
+    steps:
+    - name: 检出我的修改分支 (Checkout My Mod Branch)
+      uses: actions/checkout@v4
+      with:
+        # 关键步骤:
+        # 1. 'repository' 指向你自己的 Fork 仓库 (请替换 YourUsername)
+        # 2. 'ref' 指向你创建的、包含所有修改的分支 (请替换分支名)
+        repository: ${{ github.repository }} # 自动使用当前仓库
+        ref: k2p-mod-24.10                 # !!! 请确保这是你包含修改的分支名 !!!
+
+    - name: 初始化编译环境 (Initialize Build Environment)
+      env:
+        DEBIAN_FRONTEND: noninteractive
+      run: |
+        sudo rm -rf /etc/apt/sources.list.d/* /usr/share/dotnet /usr/local/lib/android /opt/ghc
+        sudo -E apt-get -qq update
+        sudo -E apt-get -qq install build-essential asciidoc binutils bzip2 gawk gettext git libncurses5-dev libz-dev patch python3 python2.7 unzip zlib1g-dev lib32gcc-s1 libc6-dev-i386 subversion flex uglifyjs git-core gcc-multilib p7zip p7zip-full msmtp libssl-dev texinfo libglib2.0-dev xmlto qemu-utils upx libelf-dev autoconf automake libtool autopoint device-tree-compiler g++-multilib antlr3 gperf wget swig rsync
+        sudo -E apt-get -qq autoremove --purge
+        sudo -E apt-get -qq clean
+
+    - name: 编译固件 (Build Firmware)
+      id: build
+      run: |
+        # 编译流程现在非常纯净, 因为所有代码和修改都已就位
+        
+        # 1. 拉取第三方软件包源码 (例如 OpenClash)
+        echo "Cloning external packages..."
+        git clone --depth=1 https://github.com/vernesong/luci-app-openclash.git package/luci-app-openclash
+
+        # 2. 更新并安装 Feeds
+        echo "Updating and installing feeds..."
+        ./scripts/feeds update -a
+        ./scripts/feeds install -a
+
+        # 3. 应用你的 .config 文件
+        echo "Applying custom .config..."
+        # 使用 -f 强制覆盖，避免意外
+        cp -f $CONFIG_FILE .config
+        
+        # 4. 下载编译所需的全部源码
+        echo "Downloading all sources for compilation..."
+        make download -j$(nproc)
+        
+        # 5. 开始编译固件
+        echo "Building firmware with $(nproc) threads..."
+        make -j$(nproc) V=s
+
+    - name: 打包固件 (Package Firmware)
+      if: env.UPLOAD_FIRMWARE == 'true' && !cancelled()
+      run: |
+        FIRMWARE_PATH="bin/targets/ramips/mt7621"
+        echo "Packaging firmware from: $FIRMWARE_PATH"
+        cd $FIRMWARE_PATH
+        rm -rf packages
+        echo "FIRMWARE_TAG=$(date +'%Y.%m.%d-%H%M')-K2P-MOD-24.10" >> $GITHUB_ENV
+        zip -r immortalwrt-k2p-${{ env.FIRMWARE_TAG }}.zip .
+
+    - name: 上传固件到 Artifacts (Upload Firmware)
+      if: env.UPLOAD_FIRMWARE == 'true' && !cancelled()
+      uses: actions/upload-artifact@v4
+      with:
+        name: immortalwrt-k2p-${{ env.FIRMWARE_TAG }}
+        path: bin/targets/ramips/mt7621/*.zip
