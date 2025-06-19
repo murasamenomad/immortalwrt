@@ -1,7 +1,7 @@
 #
-# GitHub Actions: v6 - 实验版 (强制哑巴终端 + defconfig)
+# GitHub Actions: v8 - 终极版 (kenzok8/openwrt-packages)
 #
-name: Build ImmortalWrt for K2P (v6 - Experiment)
+name: Build ImmortalWrt for K2P (v8 - Ultimate)
 
 on:
   workflow_dispatch:
@@ -22,7 +22,7 @@ jobs:
     - name: Checkout Repository
       uses: actions/checkout@v4
 
-    - name: 初始化编译环境 (更详细的日志)
+    - name: 初始化编译环境
       env:
         DEBIAN_FRONTEND: noninteractive
       run: |
@@ -32,29 +32,40 @@ jobs:
         sudo -E apt-get autoremove --purge -y
         sudo -E apt-get clean
 
-    - name: 克隆并准备 ImmortalWrt 源码
+    - name: 克隆并准备 ImmortalWrt 源码与 Feeds
       id: prepare_source
       run: |
         git clone --depth 1 -b $REPO_BRANCH $REPO_URL openwrt
         cd openwrt
-        echo "Adding OpenClash source feed..."
+
+        # 添加所有需要的第三方软件包源
+        echo "Adding custom feeds..."
+        # 1. OpenClash 源
         echo 'src-git-full openclash https://github.com/vernesong/OpenClash.git' >> feeds.conf.default
+        # 2. 包含 Samba4, Aria2 等丰富应用的 kenzok8/openwrt-packages 源
+        echo 'src-git kenzok8 https://github.com/kenzok8/openwrt-packages' >> feeds.conf.default
+
+        # 应用硬件修改
         echo "Applying hardware modifications for 32MB K2P..."
         sed -i 's/reg = <0xa0000 0xf60000>;/reg = <0xa0000 0x1f60000>;/' target/linux/ramips/dts/mt7621_phicomm_k2p.dts
         sed -i 's/IMAGE_SIZE := 15744k/IMAGE_SIZE := 32160k/' target/linux/ramips/image/mt7621.mk
         
-    - name: 更新 Feeds 并应用配置 (全新实验方法)
+    - name: 更新 Feeds 并应用配置
       id: configure_build
       run: |
-        # 强制声明一个哑巴终端, 尝试绕过 menuconfig 错误
+        # 强制声明一个哑巴终端, 这是我们之前调试成功的关键
         export TERM=dumb
         
         cd openwrt
-        echo "Updating and installing feeds..."
+        echo "Updating feeds..."
         ./scripts/feeds update -a
+        
+        echo "Installing feeds..."
         ./scripts/feeds install -a
+        
         echo "Copying custom .config..."
         cp "../$CONFIG_FILE" .config
+        
         echo "Expanding .config using standard 'defconfig'..."
         make defconfig
 
