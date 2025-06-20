@@ -1,17 +1,12 @@
 #
-# GitHub Actions: v9 - 调试版 (单线程详细日志)
+# GitHub Actions: v10 - 终极专业版 (带缓存和日志)
 #
-name: Build ImmortalWrt for K2P (v9 - Debug)
+name: Build ImmortalWrt for K2P (v10 - Professional)
 
 on:
   workflow_dispatch:
 
 env:
-  REPO_URL: https://github.com/immortalwrt/immortalwrt
-  REPO_BRANCH: master
-  CONFIG_FILE: .config
-  FIRMWARE_PATH: bin/targets/ramips/mt7621
-  UPLOAD_FIRMWARE: true
   TZ: Asia/Shanghai
 
 jobs:
@@ -19,12 +14,10 @@ jobs:
     runs-on: ubuntu-22.04
 
     steps:
-    - name: Checkout Repository
+    - name: Checkout repository
       uses: actions/checkout@v4
 
-    - name: 初始化编译环境
-      env:
-        DEBIAN_FRONTEND: noninteractive
+    - name: Initialize build environment
       run: |
         sudo rm -rf /etc/apt/sources.list.d/* /usr/share/dotnet /usr/local/lib/android /opt/ghc
         sudo -E apt-get update
@@ -32,51 +25,49 @@ jobs:
         sudo -E apt-get autoremove --purge -y
         sudo -E apt-get clean
 
-    - name: 克隆并准备 ImmortalWrt 源码与 Feeds
-      id: prepare_source
+    - name: Clone ImmortalWrt source and prepare feeds
       run: |
-        git clone --depth 1 -b $REPO_BRANCH $REPO_URL openwrt
+        git clone https://github.com/immortalwrt/immortalwrt.git openwrt
         cd openwrt
-        echo "Adding custom feeds..."
+        # 添加自定义源
         echo 'src-git-full openclash https://github.com/vernesong/OpenClash.git' >> feeds.conf.default
         echo 'src-git kenzok8 https://github.com/kenzok8/openwrt-packages' >> feeds.conf.default
-        echo "Applying hardware modifications for 32MB K2P..."
-        sed -i 's/reg = <0xa0000 0xf60000>;/reg = <0xa0000 0x1f60000>;/' target/linux/ramips/dts/mt7621_phicomm_k2p.dts
-        sed -i 's/IMAGE_SIZE := 15744k/IMAGE_SIZE := 32160k/' target/linux/ramips/image/mt7621.mk
-        
-    - name: 更新 Feeds 并应用配置
-      id: configure_build
+
+    - name: Cache downloaded sources (dl)
+      uses: actions/cache@v4
+      with:
+        path: openwrt/dl
+        key: ${{ runner.os }}-dl-${{ hashFiles('openwrt/feeds.conf.default') }}
+
+    - name: Update, install feeds and apply configuration
       run: |
-        export TERM=dumb
+        export TERM=dumb # 关键防错措施
         cd openwrt
         ./scripts/feeds update -a
         ./scripts/feeds install -a
-        cp "../$CONFIG_FILE" .config
+        cp ../.config .config
+        # 应用硬件修改
+        sed -i 's/reg = <0xa0000 0xf60000>;/reg = <0xa0000 0x1f60000>;/' target/linux/ramips/dts/mt7621_phicomm_k2p.dts
+        sed -i 's/IMAGE_SIZE := 15744k/IMAGE_SIZE := 32160k/' target/linux/ramips/image/mt7621.mk
         make defconfig
 
-    - name: 下载软件包源码
-      id: download_packages
+    - name: Compile the firmware (Debug Mode)
+      id: compile
       run: |
         cd openwrt
-        make download -j$(nproc)
+        echo "Compiling with single thread for debugging, this will be slow..."
+        # 使用单线程编译，并将所有输出保存到 build.log，同时在屏幕上显示
+        make -j1 V=s 2>&1 | tee build.log
+        # 如果make失败，脚本会在这里停止，但build.log已经被保存
 
-    - name: 开始编译固件 (使用单线程进行调试)
-      id: build_firmware
-      run: |
-        cd openwrt
-        echo "Building firmware with single thread for debugging..."
-        make -j1 V=s
-
-    - name: 打包固件与软件包
-      if: success()
-      run: |
-        cd openwrt/${{ env.FIRMWARE_PATH }}
-        echo "FIRMWARE_TAG=$(date +'%Y.%m.%d-%H%M')" >> $GITHUB_ENV
-        zip -r immortalwrt-k2p-32m-${{ env.FIRMWARE_TAG }}.zip .
-
-    - name: 上传构建产物
-      if: success()
+    - name: Upload build artifacts
+      # 无论编译成功与否，都上传日志和产物，方便分析
+      if: always()
       uses: actions/upload-artifact@v4
       with:
-        name: immortalwrt-k2p-32m-${{ env.FIRMWARE_TAG }}
-        path: openwrt/${{ env.FIRMWARE_PATH }}/*.zip
+        name: immortalwrt-build-artifacts-${{ github.run_id }}
+        path: |
+          openwrt/bin/targets/ramips/mt7621/
+          openwrt/bin/packages/
+          openwrt/build.log
+          openwrt/.config
