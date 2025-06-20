@@ -1,7 +1,7 @@
 #
-# GitHub Actions: v8 - 终极版 (kenzok8/openwrt-packages)
+# GitHub Actions: v9 - 调试版 (单线程详细日志)
 #
-name: Build ImmortalWrt for K2P (v8 - Ultimate)
+name: Build ImmortalWrt for K2P (v9 - Debug)
 
 on:
   workflow_dispatch:
@@ -37,15 +37,9 @@ jobs:
       run: |
         git clone --depth 1 -b $REPO_BRANCH $REPO_URL openwrt
         cd openwrt
-
-        # 添加所有需要的第三方软件包源
         echo "Adding custom feeds..."
-        # 1. OpenClash 源
         echo 'src-git-full openclash https://github.com/vernesong/OpenClash.git' >> feeds.conf.default
-        # 2. 包含 Samba4, Aria2 等丰富应用的 kenzok8/openwrt-packages 源
         echo 'src-git kenzok8 https://github.com/kenzok8/openwrt-packages' >> feeds.conf.default
-
-        # 应用硬件修改
         echo "Applying hardware modifications for 32MB K2P..."
         sed -i 's/reg = <0xa0000 0xf60000>;/reg = <0xa0000 0x1f60000>;/' target/linux/ramips/dts/mt7621_phicomm_k2p.dts
         sed -i 's/IMAGE_SIZE := 15744k/IMAGE_SIZE := 32160k/' target/linux/ramips/image/mt7621.mk
@@ -53,35 +47,25 @@ jobs:
     - name: 更新 Feeds 并应用配置
       id: configure_build
       run: |
-        # 强制声明一个哑巴终端, 这是我们之前调试成功的关键
         export TERM=dumb
-        
         cd openwrt
-        echo "Updating feeds..."
         ./scripts/feeds update -a
-        
-        echo "Installing feeds..."
         ./scripts/feeds install -a
-        
-        echo "Copying custom .config..."
         cp "../$CONFIG_FILE" .config
-        
-        echo "Expanding .config using standard 'defconfig'..."
         make defconfig
 
     - name: 下载软件包源码
       id: download_packages
       run: |
         cd openwrt
-        echo "Downloading all package sources..."
         make download -j$(nproc)
 
-    - name: 开始编译固件
+    - name: 开始编译固件 (使用单线程进行调试)
       id: build_firmware
       run: |
         cd openwrt
-        echo "Building firmware with $(nproc) threads..."
-        make -j$(nproc) V=s
+        echo "Building firmware with single thread for debugging..."
+        make -j1 V=s
 
     - name: 打包固件与软件包
       if: success()
