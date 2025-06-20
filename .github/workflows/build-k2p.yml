@@ -1,13 +1,16 @@
 #
-# GitHub Actions: v10 - 终极专业版 (带缓存和日志)
+# GitHub Actions: v14 - 纯净官方版
 #
-name: Build ImmortalWrt for K2P (v10 - Professional)
+name: Build ImmortalWrt for K2P (v14 - Pure Official)
 
 on:
   workflow_dispatch:
 
 env:
   TZ: Asia/Shanghai
+  REPO_URL: https://github.com/immortalwrt/immortalwrt.git
+  REPO_BRANCH: master # 我们依然使用 master，因为现在我们怀疑是 feed 冲突问题
+  CONFIG_FILE: .config
 
 jobs:
   build:
@@ -25,24 +28,23 @@ jobs:
         sudo -E apt-get autoremove --purge -y
         sudo -E apt-get clean
 
-    - name: Clone ImmortalWrt source and prepare feeds
+    - name: Clone ImmortalWrt source
       run: |
-        git clone https://github.com/immortalwrt/immortalwrt.git openwrt
-        cd openwrt
-        # 添加自定义源
-        echo 'src-git-full openclash https://github.com/vernesong/OpenClash.git' >> feeds.conf.default
-        echo 'src-git kenzok8 https://github.com/kenzok8/openwrt-packages' >> feeds.conf.default
-
+        git clone --depth 1 -b $REPO_BRANCH $REPO_URL openwrt
+        
     - name: Cache downloaded sources (dl)
       uses: actions/cache@v4
       with:
         path: openwrt/dl
-        key: ${{ runner.os }}-dl-${{ hashFiles('openwrt/feeds.conf.default') }}
+        key: ${{ runner.os }}-dl-${{ env.REPO_BRANCH }}-${{ hashFiles('openwrt/feeds.conf.default') }}
+        restore-keys: |
+          ${{ runner.os }}-dl-${{ env.REPO_BRANCH }}-
 
     - name: Update, install feeds and apply configuration
       run: |
-        export TERM=dumb # 关键防错措施
+        export TERM=dumb
         cd openwrt
+        # --- 【V14 核心修改】: 不再添加任何第三方源, 完全依赖官方 feeds ---
         ./scripts/feeds update -a
         ./scripts/feeds install -a
         cp ../.config .config
@@ -51,17 +53,13 @@ jobs:
         sed -i 's/IMAGE_SIZE := 15744k/IMAGE_SIZE := 32160k/' target/linux/ramips/image/mt7621.mk
         make defconfig
 
-    - name: Compile the firmware (Debug Mode)
-      id: compile
+    - name: Compile the firmware
       run: |
         cd openwrt
-        echo "Compiling with single thread for debugging, this will be slow..."
-        # 使用单线程编译，并将所有输出保存到 build.log，同时在屏幕上显示
-        make -j1 V=s 2>&1 | tee build.log
-        # 如果make失败，脚本会在这里停止，但build.log已经被保存
-
+        echo "Compiling firmware with multi-threading..."
+        make -j$(nproc) V=s 2>&1 | tee build.log || (cat build.log && exit 1)
+        
     - name: Upload build artifacts
-      # 无论编译成功与否，都上传日志和产物，方便分析
       if: always()
       uses: actions/upload-artifact@v4
       with:
