@@ -1,7 +1,7 @@
 #
-# GitHub Actions: v19 - 白名单邀请版
+# GitHub Actions: 最终执行版
 #
-name: Build ImmortalWrt for K2P (v19 - Whitelist)
+name: Build ImmortalWrt for K2P (Final Execution)
 
 on:
   workflow_dispatch:
@@ -22,36 +22,29 @@ jobs:
 
     - name: Initialize build environment
       run: |
-        # ... 省略和之前版本一样的 apt-get 安装命令 ...
-        sudo rm -rf /etc/apt/sources.list.d/* /usr/share/dotnet /usr/local/lib/android /opt/ghc; sudo -E apt-get update; sudo -E apt-get install -y build-essential asciidoc binutils bzip2 gawk gettext git libncurses5-dev libz-dev patch python3 python2.7 unzip zlib1g-dev lib32gcc-s1 libc6-dev-i386 subversion flex uglifyjs git-core gcc-multilib p7zip p7zip-full msmtp libssl-dev texinfo libglib2.0-dev xmlto qemu-utils upx libelf-dev autoconf automake libtool autopoint device-tree-compiler g++-multilib antlr3 gperf wget swig rsync libcrypt-dev python3-netifaces apk-tools; sudo -E apt-get autoremove --purge -y; sudo -E apt-get clean
+        sudo rm -rf /etc/apt/sources.list.d/* /usr/share/dotnet /usr/local/lib/android /opt/ghc
+        # --- 【最终修正】: 在 update 前，先添加 universe 仓库，确保能找到 apk-tools ---
+        sudo add-apt-repository universe
+        sudo -E apt-get update
+        sudo -E apt-get install -y build-essential asciidoc binutils bzip2 gawk gettext git libncurses5-dev libz-dev patch python3 python2.7 unzip zlib1g-dev lib32gcc-s1 libc6-dev-i386 subversion flex uglifyjs git-core gcc-multilib p7zip p7zip-full msmtp libssl-dev texinfo libglib2.0-dev xmlto qemu-utils upx libelf-dev autoconf automake libtool autopoint device-tree-compiler g++-multilib antlr3 gperf wget swig rsync libcrypt-dev python3-netifaces apk-tools
+        sudo -E apt-get autoremove --purge -y
+        sudo -E apt-get clean
 
-    - name: Clone ImmortalWrt source
-      run: git clone --depth 1 -b $REPO_BRANCH $REPO_URL openwrt
-
-    # --- 【V19 核心修改】: 手术式提取白名单软件包 ---
-    - name: Clone and copy custom packages
+    - name: Clone source and prepare packages
       run: |
-        # 创建一个安全目录，用来存放我们“邀请”来的包
-        mkdir -p openwrt/package/community
-
-        # --- 处理 OpenClash ---
-        # 直接将整个 OpenClash 项目克隆到我们的社区包目录中
-        git clone --depth 1 https://github.com/vernesong/OpenClash.git openwrt/package/community/openclash
-
-        # --- 处理 Samba4 和 Aria2 ---
-        # 1. 将 kenzok8 的仓库克隆到一个临时文件夹
+        git clone --depth 1 -b $REPO_BRANCH $REPO_URL openwrt
+        cd openwrt
+        mkdir -p package/community
+        # 使用"外科手术式"只获取我们需要的包，避免冲突
+        git clone --depth 1 https://github.com/vernesong/OpenClash.git package/community/openclash
         git clone --depth 1 https://github.com/kenzok8/openwrt-packages.git kenzok8_tmp
-        
-        # 2. 从临时文件夹中, 精准地只把我们“购物清单”上的包复制到我们自己的社区包目录
-        echo "Copying required packages from kenzok8 feed..."
-        cp -r kenzok8_tmp/luci-app-samba4 openwrt/package/community/
-        cp -r kenzok8_tmp/samba4 openwrt/package/community/
-        cp -r kenzok8_tmp/luci-app-aria2 openwrt/package/community/
-        cp -r kenzok8_tmp/aria2 openwrt/package/community/
-        cp -r kenzok8_tmp/ariang-nginx openwrt/package/community/
-        
-        # 3. 删除临时文件夹，保持编译环境干净
+        cp -r kenzok8_tmp/luci-app-samba4 package/community/
+        cp -r kenzok8_tmp/samba4 package/community/
+        cp -r kenzok8_tmp/luci-app-aria2 package/community/
+        cp -r kenzok8_tmp/aria2 package/community/
+        cp -r kenzok8_tmp/ariang-nginx package/community/
         rm -rf kenzok8_tmp
+        cd ..
 
     - name: Cache downloaded sources (dl)
       uses: actions/cache@v4
@@ -63,7 +56,6 @@ jobs:
       run: |
         export TERM=dumb
         cd openwrt
-        # 我们不再修改 feeds.conf.default, 而是直接更新和安装官方源
         ./scripts/feeds update -a
         ./scripts/feeds install -a
         cp ../.config .config
@@ -71,10 +63,10 @@ jobs:
         sed -i 's/IMAGE_SIZE := 15744k/IMAGE_SIZE := 32160k/' target/linux/ramips/image/mt7621.mk
         make defconfig
 
-    # ... 后续的编译、索引生成、上传步骤与 v16 完全一致 ...
     - name: Compile the firmware
       run: |
-        cd openwrt; make -j$(nproc) V=s 2>&1 | tee build.log || (cat build.log && exit 1)
+        cd openwrt
+        make -j$(nproc) V=s 2>&1 | tee build.log || (cat build.log && exit 1)
         
     - name: Consolidate packages and generate master index
       run: |
