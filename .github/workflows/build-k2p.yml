@@ -1,7 +1,7 @@
 #
-# GitHub Actions: 最终执行版 (纯官方源 + 内建工具正确索引)
+# GitHub Actions: 最终版 · 官方源专业构建
 #
-name: Build ImmortalWrt for K2P (Final Official-Only Build)
+name: Build ImmortalWrt for K2P (Final - Official Feeds & Pro Indexing)
 
 on:
   workflow_dispatch:
@@ -22,7 +22,7 @@ jobs:
 
     - name: Initialize build environment
       run: |
-        # 我们绝不从外部安装 apk-tools
+        # 严格遵循“自给自足”原则，不从外部安装 apk-tools
         sudo rm -rf /etc/apt/sources.list.d/* /usr/share/dotnet /usr/local/lib/android /opt/ghc
         sudo -E apt-get update
         sudo -E apt-get install -y build-essential asciidoc binutils bzip2 gawk gettext git libncurses5-dev libz-dev patch python3 python2.7 unzip zlib1g-dev lib32gcc-s1 libc6-dev-i386 subversion flex uglifyjs git-core gcc-multilib p7zip p7zip-full msmtp libssl-dev texinfo libglib2.0-dev xmlto qemu-utils upx libelf-dev autoconf automake libtool autopoint device-tree-compiler g++-multilib antlr3 gperf wget swig rsync libcrypt-dev python3-netifaces
@@ -56,50 +56,37 @@ jobs:
     - name: Compile the firmware
       run: |
         cd openwrt
+        echo "Compiling firmware with multi-threading..."
         make -j$(nproc) V=s 2>&1 | tee build.log || (cat build.log && exit 1)
         
     - name: Create and Index Package Repository
       run: |
-        # 定义工具和密钥的路径变量
+        # 定义内建工具和密钥的路径变量
         APK_TOOL=$(pwd)/openwrt/staging_dir/host/bin/apk
-        KEY_DIR=$(pwd)/openwrt/keys
-        PRIVATE_KEY=$KEY_DIR/key-build.apk.pem
-        PUBLIC_KEY=$KEY_DIR/key-build.apk.pub
-        
-        # 检查密钥是否存在
-        if [ ! -f "$PRIVATE_KEY" ]; then
-          echo "错误: 签名私钥 $PRIVATE_KEY 未找到! 将尝试使用后备密钥名..."
-          # 兼容旧版构建系统可能生成的RSA密钥名作为后备
-          PRIVATE_KEY=$KEY_DIR/key-build
-          PUBLIC_KEY=$KEY_DIR/key-build.pub
-          if [ ! -f "$PRIVATE_KEY" ]; then
-            echo "错误: 后备签名私钥 $PRIVATE_KEY 也未找到! 索引将不被签名。"
-            # 如果连后备密钥都找不到，我们将只创建未签名的索引
-            SIGNING_KEY_PARAM=""
-          else
-            echo "警告: 使用旧版私钥 $PRIVATE_KEY"
-            SIGNING_KEY_PARAM="-k $PRIVATE_KEY"
-          fi
-        else
-          echo "签名密钥检查通过: $PRIVATE_KEY"
-          SIGNING_KEY_PARAM="-k $PRIVATE_KEY"
-        fi
+        PRIVATE_KEY=$(pwd)/openwrt/keys/key-build.apk.pem
+        PUBLIC_KEY=$(pwd)/openwrt/keys/key-build.apk.pub
 
+        # 检查密钥是否存在，作为流程健康的验证
+        if [ ! -f "$PRIVATE_KEY" ]; then
+          echo "Fatal Error: Signing private key $PRIVATE_KEY not found!"
+          exit 1
+        fi
+        
         # 创建并整合软件包到一个统一目录
         UNIFIED_REPO_DIR=$(pwd)/openwrt/bin/unified_repo
         mkdir -p $UNIFIED_REPO_DIR
-        echo "正在整合所有 .apk 软件包..."
+        echo "Consolidating all .apk packages..."
         find openwrt/bin/packages/mipsel_24kc -name "*.apk" -exec cp -t $UNIFIED_REPO_DIR/ {} +
         find openwrt/bin/targets/ramips/mt7621/packages -name "*.apk" -exec cp -t $UNIFIED_REPO_DIR/ {} +
         
-        # 生成并签署主软件包索引
-        echo "正在生成并签署主软件包索引..."
+        # 使用内建工具，并采用正确的参数，生成并签署主软件包索引
+        echo "Generating and signing the master package index..."
         cd $UNIFIED_REPO_DIR
-        $APK_TOOL index -o APKINDEX.tar.gz $SIGNING_KEY_PARAM --allow-untrusted *.apk
+        $APK_TOOL index -o APKINDEX.tar.gz -k "$PRIVATE_KEY" --allow-untrusted *.apk
 
-        # 将公钥也复制到仓库中
+        # 将公钥也复制到仓库中，方便未来使用
         if [ -f "$PUBLIC_KEY" ]; then
-            echo "正在将公钥添加到仓库中..."
+            echo "Copying public key to the repository..."
             cp "$PUBLIC_KEY" $UNIFIED_REPO_DIR/
         fi
 
