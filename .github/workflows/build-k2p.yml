@@ -1,7 +1,7 @@
 #
-# GitHub Actions: 最终版 v20 (忽略签名检查)
+# GitHub Actions: 最终版 · 回归初心
 #
-name: Build ImmortalWrt for K2P (v20 - Final with Signature Bypass)
+name: Build ImmortalWrt for K2P (Official Feeds Only)
 
 on:
   workflow_dispatch:
@@ -22,14 +22,18 @@ jobs:
 
     - name: Initialize build environment
       run: |
-        # ... 省略了和之前版本一样的 apt-get 安装命令 ...
-        sudo rm -rf /etc/apt/sources.list.d/* /usr/share/dotnet /usr/local/lib/android /opt/ghc; sudo -E apt-get update; sudo -E apt-get install -y build-essential asciidoc binutils bzip2 gawk gettext git libncurses5-dev libz-dev patch python3 python2.7 unzip zlib1g-dev lib32gcc-s1 libc6-dev-i386 subversion flex uglifyjs git-core gcc-multilib p7zip p7zip-full msmtp libssl-dev texinfo libglib2.0-dev xmlto qemu-utils upx libelf-dev autoconf automake libtool autopoint device-tree-compiler g++-multilib antlr3 gperf wget swig rsync libcrypt-dev python3-netifaces; sudo -E apt-get autoremove --purge -y; sudo -E apt-get clean
+        # 我们不再需要从外部安装 apk-tools
+        sudo rm -rf /etc/apt/sources.list.d/* /usr/share/dotnet /usr/local/lib/android /opt/ghc
+        sudo -E apt-get update
+        sudo -E apt-get install -y build-essential asciidoc binutils bzip2 gawk gettext git libncurses5-dev libz-dev patch python3 python2.7 unzip zlib1g-dev lib32gcc-s1 libc6-dev-i386 subversion flex uglifyjs git-core gcc-multilib p7zip p7zip-full msmtp libssl-dev texinfo libglib2.0-dev xmlto qemu-utils upx libelf-dev autoconf automake libtool autopoint device-tree-compiler g++-multilib antlr3 gperf wget swig rsync libcrypt-dev python3-netifaces
+        sudo -E apt-get autoremove --purge -y
+        sudo -E apt-get clean
 
-    - name: Clone sources and prepare custom packages
+    - name: Clone ImmortalWrt source
       run: |
-        # ... 省略了和之前版本一样的“外科手术式”提取软件包的步骤 ...
-        git clone --depth 1 -b $REPO_BRANCH $REPO_URL openwrt; mkdir -p openwrt/package/community; git clone --depth 1 https://github.com/vernesong/OpenClash.git openwrt/package/community/openclash; git clone --depth 1 https://github.com/kenzok8/openwrt-packages.git kenzok8_tmp; cp -r kenzok8_tmp/luci-app-samba openwrt/package/community/; cp -r kenzok8_tmp/samba4 openwrt/package/community/; cp -r kenzok8_tmp/luci-app-aria2 openwrt/package/community/; cp -r kenzok8_tmp/aria2 openwrt/package/community/; cp -r kenzok8_tmp/ariang-nginx openwrt/package/community/; rm -rf kenzok8_tmp
-
+        # 只克隆主源码，不添加任何第三方源
+        git clone --depth 1 -b $REPO_BRANCH $REPO_URL openwrt
+        
     - name: Cache downloaded sources (dl)
       uses: actions/cache@v4
       with:
@@ -40,9 +44,11 @@ jobs:
       run: |
         export TERM=dumb
         cd openwrt
+        # 只更新和安装官方自带的 feeds
         ./scripts/feeds update -a
         ./scripts/feeds install -a
         cp ../.config .config
+        # 应用硬件修改
         sed -i 's/reg = <0xa0000 0xf60000>;/reg = <0xa0000 0x1f60000>;/' target/linux/ramips/dts/mt7621_phicomm_k2p.dts
         sed -i 's/IMAGE_SIZE := 15744k/IMAGE_SIZE := 32160k/' target/linux/ramips/image/mt7621.mk
         make defconfig
@@ -54,15 +60,21 @@ jobs:
         
     - name: Consolidate packages and generate master index
       run: |
+        # 定义由编译系统自己生成的 apk 命令的路径
         APK_INDEX_TOOL=$(pwd)/openwrt/staging_dir/host/bin/apk
-        UNIFIED_REPO_DIR=$(pwd)/openwrt/bin/unified_repo/mipsel_24kc
+        
+        # 创建一个统一的仓库目录
+        UNIFIED_REPO_DIR=$(pwd)/openwrt/bin/unified_repo
         mkdir -p $UNIFIED_REPO_DIR
+        
+        # 将所有分散的 .apk 文件全部复制到这个统一的目录里
         find openwrt/bin/packages/mipsel_24kc -name "*.apk" -exec cp {} $UNIFIED_REPO_DIR/ \;
         find openwrt/bin/targets/ramips/mt7621/packages -name "*.apk" -exec cp {} $UNIFIED_REPO_DIR/ \;
+        
+        # 进入这个包含了所有软件包的目录
         cd $UNIFIED_REPO_DIR
         
-        # --- 【V20 核心修正】: 增加 --allow-untrusted 参数，忽略签名检查 ---
-        echo "Generating master index (APKINDEX.tar.gz) and ignoring signatures..."
+        # 使用我们自己的 apk 工具，为当前目录的所有 .apk 文件生成总索引
         $APK_INDEX_TOOL index -o APKINDEX.tar.gz --allow-untrusted *.apk
 
     - name: Upload build artifacts
