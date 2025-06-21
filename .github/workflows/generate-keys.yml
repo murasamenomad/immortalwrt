@@ -1,0 +1,34 @@
+name: Generate Signing Keys
+
+on:
+  workflow_dispatch: # 允许手动触发
+
+jobs:
+  generate:
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Clone ImmortalWrt source
+        run: git clone --depth 1 https://github.com/immortalwrt/immortalwrt.git openwrt
+
+      - name: Build usign tool
+        run: |
+          cd openwrt
+          # 我们不需要完整编译，只需要编译出 usign 工具即可
+          make tools/usign/compile
+
+      - name: Generate new key pair
+        run: |
+          cd openwrt
+          # 在 staging_dir 中找到我们刚刚编译好的 usign 工具并执行
+          ./staging_dir/host/bin/usign -G -p my_repo.pub -s my_repo.key
+
+      - name: Display keys in log
+        run: |
+          cd openwrt
+          echo "========= PRIVATE KEY (my_repo.key) - 请复制以下所有内容并保存 =========="
+          cat my_repo.key
+          echo "========================================================================"
+          echo ""
+          echo "========= PUBLIC KEY (my_repo.pub) - 请复制以下所有内容并保存 ==========="
+          cat my_repo.pub
+          echo "========================================================================"
