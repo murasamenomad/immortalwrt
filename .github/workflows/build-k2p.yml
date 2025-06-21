@@ -1,7 +1,7 @@
 #
-# GitHub Actions: 最终正确版 (遵从系统设计哲学)
+# GitHub Actions: 最终版 (官方源 + 内建工具索引)
 #
-name: Build ImmortalWrt for K2P (The Correct Way - Final)
+name: Build ImmortalWrt for K2P (Final Build)
 
 on:
   workflow_dispatch:
@@ -22,25 +22,16 @@ jobs:
 
     - name: Initialize build environment
       run: |
-        # --- 【最终修正】: 彻底移除安装 apk-tools 的错误指令 ---
+        # 不再尝试安装外部的 apk-tools
         sudo rm -rf /etc/apt/sources.list.d/* /usr/share/dotnet /usr/local/lib/android /opt/ghc
         sudo -E apt-get update
         sudo -E apt-get install -y build-essential asciidoc binutils bzip2 gawk gettext git libncurses5-dev libz-dev patch python3 python2.7 unzip zlib1g-dev lib32gcc-s1 libc6-dev-i386 subversion flex uglifyjs git-core gcc-multilib p7zip p7zip-full msmtp libssl-dev texinfo libglib2.0-dev xmlto qemu-utils upx libelf-dev autoconf automake libtool autopoint device-tree-compiler g++-multilib antlr3 gperf wget swig rsync libcrypt-dev python3-netifaces
         sudo -E apt-get autoremove --purge -y
         sudo -E apt-get clean
 
-    - name: Clone sources and prepare custom packages
+    - name: Clone ImmortalWrt source
       run: |
         git clone --depth 1 -b $REPO_BRANCH $REPO_URL openwrt
-        mkdir -p openwrt/package/community
-        git clone --depth 1 https://github.com/vernesong/OpenClash.git openwrt/package/community/openclash
-        git clone --depth 1 https://github.com/kenzok8/openwrt-packages.git kenzok8_tmp
-        cp -r kenzok8_tmp/luci-app-samba openwrt/package/community/
-        cp -r kenzok8_tmp/samba4 openwrt/package/community/
-        cp -r kenzok8_tmp/luci-app-aria2 openwrt/package/community/
-        cp -r kenzok8_tmp/aria2 openwrt/package/community/
-        cp -r kenzok8_tmp/ariang-nginx openwrt/package/community/
-        rm -rf kenzok8_tmp
 
     - name: Cache downloaded sources (dl)
       uses: actions/cache@v4
@@ -52,9 +43,11 @@ jobs:
       run: |
         export TERM=dumb
         cd openwrt
+        # 只更新和安装官方自带的 feeds
         ./scripts/feeds update -a
         ./scripts/feeds install -a
         cp ../.config .config
+        # 应用硬件修改
         sed -i 's/reg = <0xa0000 0xf60000>;/reg = <0xa0000 0x1f60000>;/' target/linux/ramips/dts/mt7621_phicomm_k2p.dts
         sed -i 's/IMAGE_SIZE := 15744k/IMAGE_SIZE := 32160k/' target/linux/ramips/image/mt7621.mk
         make defconfig
@@ -70,10 +63,11 @@ jobs:
         APK_INDEX_TOOL=$(pwd)/openwrt/staging_dir/host/bin/apk
         
         # 创建一个统一的仓库目录
-        UNIFIED_REPO_DIR=$(pwd)/openwrt/bin/unified_repo/mipsel_24kc
+        UNIFIED_REPO_DIR=$(pwd)/openwrt/bin/unified_repo
         mkdir -p $UNIFIED_REPO_DIR
         
         # 将所有分散的 .apk 文件全部复制到这个统一的目录里
+        echo "Consolidating all .apk packages into one directory..."
         find openwrt/bin/packages/mipsel_24kc -name "*.apk" -exec cp {} $UNIFIED_REPO_DIR/ \;
         find openwrt/bin/targets/ramips/mt7621/packages -name "*.apk" -exec cp {} $UNIFIED_REPO_DIR/ \;
         
@@ -81,6 +75,7 @@ jobs:
         cd $UNIFIED_REPO_DIR
         
         # 使用我们自己的 apk 工具，为当前目录的所有 .apk 文件生成总索引
+        echo "Generating master index (APKINDEX.tar.gz)..."
         $APK_INDEX_TOOL index -o APKINDEX.tar.gz *.apk
 
     - name: Upload build artifacts
