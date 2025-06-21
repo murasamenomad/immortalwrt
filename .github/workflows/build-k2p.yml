@@ -1,7 +1,7 @@
 #
-# GitHub Actions: v14 - 纯净官方版
+# GitHub Actions: v19 - 白名单邀请版
 #
-name: Build ImmortalWrt for K2P (v14 - Pure Official)
+name: Build ImmortalWrt for K2P (v19 - Whitelist)
 
 on:
   workflow_dispatch:
@@ -9,7 +9,7 @@ on:
 env:
   TZ: Asia/Shanghai
   REPO_URL: https://github.com/immortalwrt/immortalwrt.git
-  REPO_BRANCH: master # 我们依然使用 master，因为现在我们怀疑是 feed 冲突问题
+  REPO_BRANCH: master
   CONFIG_FILE: .config
 
 jobs:
@@ -22,50 +22,75 @@ jobs:
 
     - name: Initialize build environment
       run: |
-        sudo rm -rf /etc/apt/sources.list.d/* /usr/share/dotnet /usr/local/lib/android /opt/ghc
-        sudo -E apt-get update
-        sudo -E apt-get install -y build-essential asciidoc binutils bzip2 gawk gettext git libncurses5-dev libz-dev patch python3 python2.7 unzip zlib1g-dev lib32gcc-s1 libc6-dev-i386 subversion flex uglifyjs git-core gcc-multilib p7zip p7zip-full msmtp libssl-dev texinfo libglib2.0-dev xmlto qemu-utils upx libelf-dev autoconf automake libtool autopoint device-tree-compiler g++-multilib antlr3 gperf wget swig rsync libcrypt-dev python3-netifaces
-        sudo -E apt-get autoremove --purge -y
-        sudo -E apt-get clean
+        # ... 省略和之前版本一样的 apt-get 安装命令 ...
+        sudo rm -rf /etc/apt/sources.list.d/* /usr/share/dotnet /usr/local/lib/android /opt/ghc; sudo -E apt-get update; sudo -E apt-get install -y build-essential asciidoc binutils bzip2 gawk gettext git libncurses5-dev libz-dev patch python3 python2.7 unzip zlib1g-dev lib32gcc-s1 libc6-dev-i386 subversion flex uglifyjs git-core gcc-multilib p7zip p7zip-full msmtp libssl-dev texinfo libglib2.0-dev xmlto qemu-utils upx libelf-dev autoconf automake libtool autopoint device-tree-compiler g++-multilib antlr3 gperf wget swig rsync libcrypt-dev python3-netifaces apk-tools; sudo -E apt-get autoremove --purge -y; sudo -E apt-get clean
 
     - name: Clone ImmortalWrt source
+      run: git clone --depth 1 -b $REPO_BRANCH $REPO_URL openwrt
+
+    # --- 【V19 核心修改】: 手术式提取白名单软件包 ---
+    - name: Clone and copy custom packages
       run: |
-        git clone --depth 1 -b $REPO_BRANCH $REPO_URL openwrt
+        # 创建一个安全目录，用来存放我们“邀请”来的包
+        mkdir -p openwrt/package/community
+
+        # --- 处理 OpenClash ---
+        # 直接将整个 OpenClash 项目克隆到我们的社区包目录中
+        git clone --depth 1 https://github.com/vernesong/OpenClash.git openwrt/package/community/openclash
+
+        # --- 处理 Samba4 和 Aria2 ---
+        # 1. 将 kenzok8 的仓库克隆到一个临时文件夹
+        git clone --depth 1 https://github.com/kenzok8/openwrt-packages.git kenzok8_tmp
         
+        # 2. 从临时文件夹中, 精准地只把我们“购物清单”上的包复制到我们自己的社区包目录
+        echo "Copying required packages from kenzok8 feed..."
+        cp -r kenzok8_tmp/luci-app-samba4 openwrt/package/community/
+        cp -r kenzok8_tmp/samba4 openwrt/package/community/
+        cp -r kenzok8_tmp/luci-app-aria2 openwrt/package/community/
+        cp -r kenzok8_tmp/aria2 openwrt/package/community/
+        cp -r kenzok8_tmp/ariang-nginx openwrt/package/community/
+        
+        # 3. 删除临时文件夹，保持编译环境干净
+        rm -rf kenzok8_tmp
+
     - name: Cache downloaded sources (dl)
       uses: actions/cache@v4
       with:
         path: openwrt/dl
         key: ${{ runner.os }}-dl-${{ env.REPO_BRANCH }}-${{ hashFiles('openwrt/feeds.conf.default') }}
-        restore-keys: |
-          ${{ runner.os }}-dl-${{ env.REPO_BRANCH }}-
 
     - name: Update, install feeds and apply configuration
       run: |
         export TERM=dumb
         cd openwrt
-        # --- 【V14 核心修改】: 不再添加任何第三方源, 完全依赖官方 feeds ---
+        # 我们不再修改 feeds.conf.default, 而是直接更新和安装官方源
         ./scripts/feeds update -a
         ./scripts/feeds install -a
         cp ../.config .config
-        # 应用硬件修改
         sed -i 's/reg = <0xa0000 0xf60000>;/reg = <0xa0000 0x1f60000>;/' target/linux/ramips/dts/mt7621_phicomm_k2p.dts
         sed -i 's/IMAGE_SIZE := 15744k/IMAGE_SIZE := 32160k/' target/linux/ramips/image/mt7621.mk
         make defconfig
 
+    # ... 后续的编译、索引生成、上传步骤与 v16 完全一致 ...
     - name: Compile the firmware
       run: |
-        cd openwrt
-        echo "Compiling firmware with multi-threading..."
-        make -j$(nproc) V=s 2>&1 | tee build.log || (cat build.log && exit 1)
+        cd openwrt; make -j$(nproc) V=s 2>&1 | tee build.log || (cat build.log && exit 1)
         
+    - name: Consolidate packages and generate master index
+      run: |
+        mkdir -p openwrt/bin/unified_repo/mipsel_24kc
+        find openwrt/bin/packages/mipsel_24kc -name "*.apk" -exec cp {} openwrt/bin/unified_repo/mipsel_24kc/ \;
+        find openwrt/bin/targets/ramips/mt7621/packages -name "*.apk" -exec cp {} openwrt/bin/unified_repo/mipsel_24kc/ \;
+        cd openwrt/bin/unified_repo/mipsel_24kc
+        apk index -o APKINDEX.tar.gz *.apk
+
     - name: Upload build artifacts
       if: always()
       uses: actions/upload-artifact@v4
       with:
         name: immortalwrt-build-artifacts-${{ github.run_id }}
         path: |
-          openwrt/bin/targets/ramips/mt7621/
-          openwrt/bin/packages/
+          openwrt/bin/targets/ramips/mt7621/immortalwrt-ramips-mt7621-phicomm_k2p-squashfs-sysupgrade.bin
+          openwrt/bin/unified_repo/
           openwrt/build.log
           openwrt/.config
