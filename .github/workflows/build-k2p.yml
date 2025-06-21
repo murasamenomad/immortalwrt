@@ -1,7 +1,7 @@
 #
-# GitHub Actions: 最终版 · 官方源专业构建
+# GitHub Actions: 最终方案 · 报告复现版
 #
-name: Build ImmortalWrt for K2P (Final - Official Feeds & Pro Indexing)
+name: Build ImmortalWrt for K2P (Report Implementation)
 
 on:
   workflow_dispatch:
@@ -22,16 +22,12 @@ jobs:
 
     - name: Initialize build environment
       run: |
-        # 严格遵循“自给自足”原则，不从外部安装 apk-tools
-        sudo rm -rf /etc/apt/sources.list.d/* /usr/share/dotnet /usr/local/lib/android /opt/ghc
-        sudo -E apt-get update
-        sudo -E apt-get install -y build-essential asciidoc binutils bzip2 gawk gettext git libncurses5-dev libz-dev patch python3 python2.7 unzip zlib1g-dev lib32gcc-s1 libc6-dev-i386 subversion flex uglifyjs git-core gcc-multilib p7zip p7zip-full msmtp libssl-dev texinfo libglib2.0-dev xmlto qemu-utils upx libelf-dev autoconf automake libtool autopoint device-tree-compiler g++-multilib antlr3 gperf wget swig rsync libcrypt-dev python3-netifaces
-        sudo -E apt-get autoremove --purge -y
-        sudo -E apt-get clean
+        # 省略了和之前版本一样的 apt-get 安装命令...
+        sudo rm -rf /etc/apt/sources.list.d/* /usr/share/dotnet /usr/local/lib/android /opt/ghc; sudo -E apt-get update; sudo -E apt-get install -y build-essential asciidoc binutils bzip2 gawk gettext git libncurses5-dev libz-dev patch python3 python2.7 unzip zlib1g-dev lib32gcc-s1 libc6-dev-i386 subversion flex uglifyjs git-core gcc-multilib p7zip p7zip-full msmtp libssl-dev texinfo libglib2.0-dev xmlto qemu-utils upx libelf-dev autoconf automake libtool autopoint device-tree-compiler g++-multilib antlr3 gperf wget swig rsync libcrypt-dev python3-netifaces; sudo -E apt-get autoremove --purge -y; sudo -E apt-get clean
 
     - name: Clone ImmortalWrt source
       run: |
-        # 只克隆主源码，不添加任何第三方源
+        # 只克隆官方主源码
         git clone --depth 1 -b $REPO_BRANCH $REPO_URL openwrt
         
     - name: Cache downloaded sources (dl)
@@ -53,50 +49,28 @@ jobs:
         sed -i 's/IMAGE_SIZE := 15744k/IMAGE_SIZE := 32160k/' target/linux/ramips/image/mt7621.mk
         make defconfig
 
-    - name: Compile the firmware
+    # --- 【最终核心修正】: 采用报告中建议的两阶段 make 命令 ---
+    - name: Compile Firmware and Create Package Index
       run: |
         cd openwrt
-        echo "Compiling firmware with multi-threading..."
-        make -j$(nproc) V=s 2>&1 | tee build.log || (cat build.log && exit 1)
         
-    - name: Create and Index Package Repository
-      run: |
-        # 定义内建工具和密钥的路径变量
-        APK_TOOL=$(pwd)/openwrt/staging_dir/host/bin/apk
-        PRIVATE_KEY=$(pwd)/openwrt/keys/key-build.apk.pem
-        PUBLIC_KEY=$(pwd)/openwrt/keys/key-build.apk.pub
+        # 第一步：执行标准编译, 生成固件和所有独立的 .apk 软件包
+        echo "Compiling firmware and packages..."
+        make -j$(nproc) V=s 2>&1 | tee build.log || (grep -B 5 -A 20 -i "error" build.log && exit 1)
 
-        # 检查密钥是否存在，作为流程健康的验证
-        if [ ! -f "$PRIVATE_KEY" ]; then
-          echo "Fatal Error: Signing private key $PRIVATE_KEY not found!"
-          exit 1
-        fi
-        
-        # 创建并整合软件包到一个统一目录
-        UNIFIED_REPO_DIR=$(pwd)/openwrt/bin/unified_repo
-        mkdir -p $UNIFIED_REPO_DIR
-        echo "Consolidating all .apk packages..."
-        find openwrt/bin/packages/mipsel_24kc -name "*.apk" -exec cp -t $UNIFIED_REPO_DIR/ {} +
-        find openwrt/bin/targets/ramips/mt7621/packages -name "*.apk" -exec cp -t $UNIFIED_REPO_DIR/ {} +
-        
-        # 使用内建工具，并采用正确的参数，生成并签署主软件包索引
-        echo "Generating and signing the master package index..."
-        cd $UNIFIED_REPO_DIR
-        $APK_TOOL index -o APKINDEX.tar.gz -k "$PRIVATE_KEY" --allow-untrusted *.apk
-
-        # 将公钥也复制到仓库中，方便未来使用
-        if [ -f "$PUBLIC_KEY" ]; then
-            echo "Copying public key to the repository..."
-            cp "$PUBLIC_KEY" $UNIFIED_REPO_DIR/
-        fi
+        # 第二步：调用 package/index 目标, 触发仓库索引、签名和密钥生成
+        echo "Creating package index..."
+        make package/index V=s
 
     - name: Upload Build Artifacts
+      # 上传产物，这次我们将直接上传 keys 目录和包含索引的 packages 目录
       if: always()
       uses: actions/upload-artifact@v4
       with:
         name: immortalwrt-build-artifacts-${{ github.run_id }}
         path: |
           openwrt/bin/targets/ramips/mt7621/
-          openwrt/bin/unified_repo/
+          openwrt/bin/packages/mipsel_24kc/
+          openwrt/keys/
           openwrt/build.log
           openwrt/.config
