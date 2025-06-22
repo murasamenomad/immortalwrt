@@ -1,20 +1,23 @@
 #
-# GitHub Actions: 最终方案 · 权威实现版
+# GitHub Actions: 最终方案 · 无签名稳定版
 #
-name: Build ImmortalWrt for K2P (Authoritative Implementation)
+name: Build ImmortalWrt for K2P (Unsigned Stable Build)
 
 on:
   workflow_dispatch:
 
 env:
   TZ: Asia/Shanghai
+  # 关键修正: 指向你自己的、已经修改好硬件信息的仓库
   REPO_URL: https://github.com/murasamenomad/immortalwrt.git
+  # 关键修正: 切换到 openwrt-24.10 稳定分支
   REPO_BRANCH: openwrt-24.10
   CONFIG_FILE: .config
 
 jobs:
   build:
     runs-on: ubuntu-22.04
+
     steps:
     - name: Checkout repository
       uses: actions/checkout@v4
@@ -29,6 +32,7 @@ jobs:
 
     - name: Clone Patched ImmortalWrt source
       run: |
+        # 只克隆你的主源码，不再需要 sed
         git clone --depth 1 -b $REPO_BRANCH $REPO_URL openwrt
         
     - name: Cache downloaded sources (dl)
@@ -37,33 +41,25 @@ jobs:
         path: openwrt/dl
         key: ${{ runner.os }}-dl-${{ env.REPO_BRANCH }}-${{ hashFiles('openwrt/feeds.conf.default')}}
 
-    - name: Prepare build environment
+    - name: Update, install feeds and apply configuration
       run: |
         export TERM=dumb
         cd openwrt
-        cp ../.config .config
         ./scripts/feeds update -a
         ./scripts/feeds install -a
+        cp ../.config .config
         make defconfig
-        make download -j$(nproc)
 
-    - name: Compile main firmware
-      id: compile
+    - name: Compile Firmware and Create Package Index
       run: |
         cd openwrt
+        # 第一步: 执行标准编译, 生成固件和所有独立的 .ipk 软件包
         echo "Compiling firmware and packages..."
-        make -j$(nproc) V=s 2>&1 | tee build.log || (grep -B 10 -A 30 -i "error" build.log && exit 1)
-        echo "COMPILATION_STATUS=success" >> $GITHUB_ENV
-
-    - name: Create Package Index and Keys
-      # 只有在主编译成功后才执行此步骤
-      if: env.COMPILATION_STATUS == 'success'
-      run: |
-        cd openwrt
-        echo "Creating opkg package index..."
-        # 使用单线程执行此关键步骤，以确保最大稳定性和最清晰的日志
+        make -j$(nproc) V=s 2>&1 | tee build.log || (grep -B 5 -A 20 -i "error" build.log && exit 1)
+        # 第二步: 调用 package/index 目标, 它会读取 .config 并跳过签名步骤
+        echo "Creating unsigned opkg package index..."
         make package/index V=s
-        
+
     - name: Upload Build Artifacts
       if: always()
       uses: actions/upload-artifact@v4
@@ -72,6 +68,7 @@ jobs:
         path: |
           openwrt/bin/targets/ramips/mt7621/
           openwrt/bin/packages/mipsel_24kc/
-          openwrt/keys/
+          # --- 【核心修改】: 因为我们禁用了签名，所以不再需要上传 keys/ 目录 ---
+          # openwrt/keys/ 
           openwrt/build.log
           openwrt/.config
