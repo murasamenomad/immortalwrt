@@ -1,6 +1,6 @@
 # .github/workflows/generate-keys.yml
 
-name: 'Generate ImmortalWrt Signing Keys (Corrected for Debugging)'
+name: 'Generate ImmortalWrt Signing Keys (Final Direct Method)'
 
 on:
   workflow_dispatch:
@@ -13,7 +13,7 @@ jobs:
         working-directory: ./openwrt
 
     steps:
-      # 步骤 1: 安装依赖 (无变化)
+      # 步骤 1, 2, 3: 保持不变，它们是正确且必要的基础
       - name: 'Install Build Dependencies'
         working-directory: .
         run: |
@@ -23,7 +23,6 @@ jobs:
             gettext git libncurses5-dev libssl-dev rsync \
             unzip zlib1g-dev file wget ccache libelf-dev
 
-      # 步骤 2: 克隆源码 (无变化)
       - name: 'Checkout ImmortalWrt Source'
         uses: actions/checkout@v4
         with:
@@ -31,41 +30,43 @@ jobs:
           ref: 'openwrt-24.10'
           path: 'openwrt'
 
-      # 步骤 3: 准备环境 (无变化)
       - name: 'Prepare Build Environment'
         run: |
           ./scripts/feeds update -a
           ./scripts/feeds install -a
           make defconfig
 
-      # 步骤 4: 编译工具链 (无变化)
-      - name: 'Build and Install Toolchain & Host Tools'
-        run: |
-          make toolchain/install -j$(nproc) V=s
+      # --- 关键修正：两步走，直接且明确 ---
 
-      # 步骤 5: 创建包索引 (关键修正：增加调试参数)
-      - name: 'Create Package Index to Trigger Key Generation'
+      # 步骤 4: 强制直接编译并安装 usign 工具
+      - name: 'Build and Install usign Tool Directly'
         run: |
-          # 根据构建系统的建议，我们添加 -j1 V=s 参数来获取详细的错误日志
-          # 这将准确地告诉我们是哪个环节导致了 "build failed"
-          make package/index -j1 V=s
+          # 这是决定性的修正。我们使用 'make -C <directory> <target>' 命令。
+          # -C tools/usign: 告诉 make 命令先进入 'tools/usign' 目录，再执行操作。
+          # install:         执行 usign 目录内 Makefile 的 'install' 目标，
+          #                  这会编译 usign 并将其复制到 'staging_dir/host/bin/'。
+          # 这个命令绕过了所有顶层 Makefile 的复杂逻辑，强制构建我们需要的工具。
+          make -C tools/usign install V=s
 
-      # 步骤 6: 验证密钥 (如果上一步成功，此步会执行)
-      - name: 'Verify and List Generated Keys'
+      # 步骤 5: 手动运行 usign 生成密钥对
+      - name: 'Generate Key Pair Manually'
         run: |
-          echo "Verifying generated keys in 'key-build' directory..."
-          if [ -d "key-build" ]; then
-            echo "SUCCESS: 'key-build' directory found."
-            echo "Listing contents:"
-            ls -lR key-build
-          else
-            echo "ERROR: 'key-build' directory not found! Build process may have failed."
-            exit 1
-          fi
+          # 上一步确保了 usign 工具的存在，现在我们直接调用它来生成密钥。
+          # 我们不再依赖 'make package/index' 的隐式行为，而是明确地执行生成操作。
+          # 这样可以避免 package/index 流程中任何其他潜在的错误。
+          ./staging_dir/host/bin/usign -G -p key-build.pub -s key-build
+          echo "密钥对 key-build (私钥) 和 key-build.pub (公钥) 已在 openwrt 根目录成功生成。"
+          
+          # 验证一下文件确实已生成
+          echo "Verifying generated key files:"
+          ls -l key-build key-build.pub
 
-      # 步骤 7: 上传产物 (如果上一步成功，此步会执行)
+      # 步骤 6: 将生成的密钥文件作为产物上传
       - name: 'Upload Keys as Artifact'
         uses: actions/upload-artifact@v4
         with:
           name: immortalwrt-signing-keys-24.10
-          path: ./openwrt/key-build/
+          # 我们现在上传的是明确生成的两个文件
+          path: |
+            openwrt/key-build
+            openwrt/key-build.pub
