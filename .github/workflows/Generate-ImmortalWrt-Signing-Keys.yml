@@ -1,69 +1,87 @@
-name: 'Generate ImmortalWrt Signing Keys (branch: openwrt-24.10)'
+# .github/workflows/generate-keys.yml
 
+# 工作流名称
+name: 'Generate ImmortalWrt Signing Keys'
+
+# 触发条件：允许从 GitHub Actions 页面手动触发
 on:
-  workflow_dispatch: # Allow manual trigger from the Actions tab
+  workflow_dispatch:
 
 jobs:
+  # 定义一个名为 'generate-keys' 的作业
   generate-keys:
+    # 在最新的 Ubuntu 虚拟机上运行
     runs-on: ubuntu-latest
 
+    # 为此作业中的所有 'run' 命令设置默认的工作目录
+    # 这样后续步骤就不需要频繁地 'cd openwrt'
     defaults:
       run:
         working-directory: ./openwrt
 
     steps:
+      # 步骤 1: 安装编译所需的所有依赖
       - name: 'Install Build Dependencies'
-        working-directory: . # 在根目录执行
+        # 覆盖默认工作目录，因为此时 './openwrt' 还不存在
+        working-directory: .
         run: |
+          # 更新软件包列表
           sudo apt-get update
-          # 添加 libelf-dev 等一些常见的、可能被遗漏的依赖
-          sudo apt-get install -y build-essential git libncurses5-dev libssl-dev ccache libelf-dev
+          # 安装构建 OpenWrt/ImmortalWrt 所需的常见依赖包
+          sudo apt-get install -y \
+            build-essential clang flex bison g++ gawk gcc-multilib g++-multilib \
+            gettext git libncurses5-dev libssl-dev python3-distutils rsync \
+            unzip zlib1g-dev file wget ccache libelf-dev
 
-      - name: 'Checkout ImmortalWrt Source on openwrt-24.10 branch'
+      # 步骤 2: 克隆 ImmortalWrt 源码
+      - name: 'Checkout ImmortalWrt Source'
         uses: actions/checkout@v4
         with:
           repository: 'immortalwrt/immortalwrt'
+          # 你可以根据需要更改此分支
           ref: 'openwrt-24.10'
+          # 将源码克隆到 'openwrt' 目录，后续步骤将在此目录中操作
           path: 'openwrt'
 
+      # 步骤 3: 准备构建环境 (关键步骤)
+      # 后续所有 'run' 步骤都将自动在 './openwrt' 目录下执行
       - name: 'Prepare Build Environment'
         run: |
+          # 更新并安装所有 feeds (软件源)
           ./scripts/feeds update -a
           ./scripts/feeds install -a
+          # 基于默认配置生成一个完整的 .config 文件，这是非交互式构建的前提
           make defconfig
 
-      - name: 'Build Host Tools (including usign)'
+      # 步骤 4: 编译 usign 并自动生成密钥 (核心逻辑)
+      - name: 'Compile usign & Trigger Key Generation'
         run: |
-          # 使用 'V=s' 参数可以在出错时打印更详细的日志，帮助排查问题
-          make tools/install -j$(nproc) V=s
+          # 这个命令会去编译 usign 工具。
+          # 在执行过程中，make 会检查 .config 配置 (默认需要包签名)。
+          # 当它发现没有提供密钥时，会自动在 'key-build' 目录下生成一套新的密钥。
+          # 这是最简单、最可靠的密钥生成方式。
+          make tools/usign/compile -j$(nproc) V=s
 
-      # --- 关键的调试步骤 ---
-      - name: 'Verify usign Installation'
+      # 步骤 5: 验证并列出生成的密钥 (用于调试和确认)
+      - name: 'Verify and List Generated Keys'
         run: |
-          echo "Verifying if usign exists..."
-          # 检查 usign 文件是否存在于预期路径
-          if [ -f "./staging_dir/host/bin/usign" ]; then
-            echo "SUCCESS: usign found at ./staging_dir/host/bin/usign"
-            # 列出文件属性，确认其为可执行文件
-            ls -l ./staging_dir/host/bin/usign
+          echo "Verifying generated keys in 'key-build' directory..."
+          # 检查 'key-build' 目录是否存在，并列出其内容
+          if [ -d "key-build" ]; then
+            echo "SUCCESS: 'key-build' directory found."
+            echo "Listing contents:"
+            ls -lR key-build
           else
-            echo "ERROR: usign not found in ./staging_dir/host/bin/"
-            echo "Listing contents of ./staging_dir/host/bin/ to debug:"
-            # 如果文件不存在，列出该目录下的所有内容，帮助我们看到底生成了什么
-            ls -l ./staging_dir/host/bin/
-            # 以错误码退出，强制让工作流失败，而不是在下一步才失败
+            echo "ERROR: 'key-build' directory not found! Build process may have failed."
             exit 1
           fi
 
-      - name: 'Generate Key Pair'
-        run: |
-          ./staging_dir/host/bin/usign -G -p key-build.pub -s key-build
-          echo "Signing keys generated successfully in the 'openwrt' directory."
-
+      # 步骤 6: 将生成的密钥目录作为产物上传
       - name: 'Upload Keys as Artifact'
         uses: actions/upload-artifact@v4
         with:
-          name: immortalwrt-signing-keys-24.10
-          path: |
-            openwrt/key-build
-            openwrt/key-build.pub
+          # 上传的产物名称
+          name: immortalwrt-signing-keys
+          # 需要上传的目录路径。
+          # 注意：`upload-artifact` 的路径是相对于工作空间根目录的。
+          path: ./openwrt/key-build/
