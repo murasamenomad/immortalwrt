@@ -1,7 +1,7 @@
 #
-# GitHub Actions: 最终方案 · 无签名稳定版
+# GitHub Actions: 最终方案 · 产物净化版
 #
-name: Build ImmortalWrt for K2P (Unsigned Stable Build)
+name: Build ImmortalWrt for K2P (Unsigned via Sanitization)
 
 on:
   workflow_dispatch:
@@ -48,17 +48,22 @@ jobs:
         ./scripts/feeds update -a
         ./scripts/feeds install -a
         cp ../.config .config
+        # .config 文件中 CONFIG_SIGNED_PACKAGES 已被注释，这会正确配置路由器端的 opkg
         make defconfig
 
     - name: Compile Firmware and Create Package Index
       run: |
         cd openwrt
-        # 第一步: 执行标准编译, 生成固件和所有独立的 .ipk 软件包
-        echo "Compiling firmware and packages..."
+        # 我们允许 make package/index 按其默认行为生成带签名的索引
         make -j$(nproc) V=s 2>&1 | tee build.log || (grep -B 5 -A 20 -i "error" build.log && exit 1)
-        # 第二步: 调用 package/index 目标, 它会读取 .config 并跳过签名步骤
-        echo "Creating unsigned opkg package index..."
         make package/index V=s
+        
+    - name: Sanitize Repository (Remove Signatures)
+      run: |
+        cd openwrt
+        echo "Sanitizing package repository by removing all '.sig' files..."
+        find ./bin/packages -type f -name "Packages.sig" -print -delete
+        echo "Sanitization complete. Repository is now unsigned."
 
     - name: Upload Build Artifacts
       if: always()
@@ -68,7 +73,7 @@ jobs:
         path: |
           openwrt/bin/targets/ramips/mt7621/
           openwrt/bin/packages/mipsel_24kc/
-          # --- 【核心修改】: 因为我们禁用了签名，所以不再需要上传 keys/ 目录 ---
+          # 不再需要上传 keys/ 目录，因为它不会被创建或已被净化
           # openwrt/keys/ 
           openwrt/build.log
           openwrt/.config
