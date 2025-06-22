@@ -28,7 +28,6 @@ jobs:
           # 更新软件包列表
           sudo apt-get update
           # 安装构建 OpenWrt/ImmortalWrt 所需的常见依赖包
-          # **已移除已废弃的 python3-distutils**
           sudo apt-get install -y \
             build-essential clang flex bison g++ gawk gcc-multilib g++-multilib \
             gettext git libncurses5-dev libssl-dev rsync \
@@ -54,14 +53,14 @@ jobs:
           # 基于默认配置生成一个完整的 .config 文件，这是非交互式构建的前提
           make defconfig
 
-      # 步骤 4: 编译 usign 并自动生成密钥 (核心逻辑)
-      - name: 'Compile usign & Trigger Key Generation'
+      # 步骤 4: 创建包索引以触发密钥生成 (核心逻辑变更)
+      - name: 'Create Package Index to Trigger Key Generation'
         run: |
-          # 这个命令会去编译 usign 工具。
-          # 在执行过程中，make 会检查 .config 配置 (默认需要包签名)。
-          # 当它发现没有提供密钥时，会自动在 'key-build' 目录下生成一套新的密钥。
-          # 这是最简单、最可靠的密钥生成方式。
-          make tools/usign/compile -j$(nproc) V=s
+          # 'make package/index' 是一个标准的构建目标，用于创建并签署软件包仓库的索引。
+          # 这个过程需要 usign 工具和签名密钥。
+          # 如果它们不存在，make 会自动将它们作为依赖项进行构建和生成。
+          # 这是一种比直接编译单个工具更可靠的触发密钥生成的方法。
+          make package/index -j$(nproc) V=s
 
       # 步骤 5: 验证并列出生成的密钥 (用于调试和确认)
       - name: 'Verify and List Generated Keys'
