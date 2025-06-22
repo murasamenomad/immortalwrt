@@ -43,7 +43,7 @@ jobs:
       - name: Generate key pair
         run: |
           # 编译好的工具位于 staging_dir 目录中
-         ./openwrt/staging_dir/host/bin/usign -G -p key-build.pub -s key-build
+          ./openwrt/staging_dir/host/bin/usign -G -p key-build.pub -s key-build
           echo "密钥对 key-build (私钥) 和 key-build.pub (公钥) 已成功生成。"
 
       # 步骤 6: 将生成的密钥文件作为产物上传，供您下载
