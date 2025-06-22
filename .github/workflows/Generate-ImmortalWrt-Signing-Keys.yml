@@ -1,9 +1,7 @@
 # .github/workflows/generate-keys.yml
 
-# 工作流名称
-name: 'Generate ImmortalWrt Signing Keys (Corrected)'
+name: 'Generate ImmortalWrt Signing Keys (Corrected for Debugging)'
 
-# 触发条件：允许从 GitHub Actions 页面手动触发
 on:
   workflow_dispatch:
 
@@ -15,7 +13,7 @@ jobs:
         working-directory: ./openwrt
 
     steps:
-      # 步骤 1: 安装编译所需的所有依赖 (无变化)
+      # 步骤 1: 安装依赖 (无变化)
       - name: 'Install Build Dependencies'
         working-directory: .
         run: |
@@ -25,7 +23,7 @@ jobs:
             gettext git libncurses5-dev libssl-dev rsync \
             unzip zlib1g-dev file wget ccache libelf-dev
 
-      # 步骤 2: 克隆 ImmortalWrt 源码 (无变化)
+      # 步骤 2: 克隆源码 (无变化)
       - name: 'Checkout ImmortalWrt Source'
         uses: actions/checkout@v4
         with:
@@ -33,32 +31,26 @@ jobs:
           ref: 'openwrt-24.10'
           path: 'openwrt'
 
-      # 步骤 3: 准备构建环境 (无变化)
+      # 步骤 3: 准备环境 (无变化)
       - name: 'Prepare Build Environment'
         run: |
           ./scripts/feeds update -a
           ./scripts/feeds install -a
           make defconfig
 
-      # 步骤 4: 编译并安装工具链和主机工具 (关键修正)
+      # 步骤 4: 编译工具链 (无变化)
       - name: 'Build and Install Toolchain & Host Tools'
         run: |
-          # **这是最关键的修正**
-          # 我们不再尝试调用一个不存在的 'tools/usign/install' 目标。
-          # 相反，我们构建整个工具链 'make toolchain/install'。
-          # 这个过程会作为依赖项，自动编译所有必需的主机工具 (包括 usign)，
-          # 并将它们正确地安装到 'staging_dir/host/' 目录下。
-          # 这是一个更底层、更可靠的准备步骤。
           make toolchain/install -j$(nproc) V=s
 
-      # 步骤 5: 创建包索引以触发密钥生成 (无变化，但现在它能成功了)
+      # 步骤 5: 创建包索引 (关键修正：增加调试参数)
       - name: 'Create Package Index to Trigger Key Generation'
         run: |
-          # 因为上一步已经确保 usign 工具存在，这一步现在可以成功执行。
-          # 'make package/index' 会调用 usign，usign 发现没有密钥时会自动生成。
-          make package/index
+          # 根据构建系统的建议，我们添加 -j1 V=s 参数来获取详细的错误日志
+          # 这将准确地告诉我们是哪个环节导致了 "build failed"
+          make package/index -j1 V=s
 
-      # 步骤 6: 验证并列出生成的密钥 (无变化)
+      # 步骤 6: 验证密钥 (如果上一步成功，此步会执行)
       - name: 'Verify and List Generated Keys'
         run: |
           echo "Verifying generated keys in 'key-build' directory..."
@@ -71,7 +63,7 @@ jobs:
             exit 1
           fi
 
-      # 步骤 7: 将生成的密钥目录作为产物上传 (无变化)
+      # 步骤 7: 上传产物 (如果上一步成功，此步会执行)
       - name: 'Upload Keys as Artifact'
         uses: actions/upload-artifact@v4
         with:
