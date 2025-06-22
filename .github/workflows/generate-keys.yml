@@ -1,6 +1,8 @@
-name: Generate Persistent Signing Keys
+name: Generate Persistent Signing Keys (Corrected)
+
 on:
   workflow_dispatch:
+
 jobs:
   generate:
     runs-on: ubuntu-22.04
@@ -9,17 +11,20 @@ jobs:
         run: |
           git clone --depth 1 -b openwrt-24.10 https://github.com/immortalwrt/immortalwrt.git openwrt
           cd openwrt
-          # 复制一个最小化的 .config 来满足 make 的上下文要求
-          cp feeds.conf.default.sample feeds.conf.default
+          
+          # --- 【核心修正】: 删除了错误的 cp 命令，直接使用仓库自带的 feeds.conf.default ---
+          
+          # 更新并安装 feeds，为后续编译工具做准备
           ./scripts/feeds update -a
           ./scripts/feeds install -a
+          
           # 创建一个最小化的 .config，并启用签名
           echo "CONFIG_TARGET_ramips=y" > .config
           echo "CONFIG_TARGET_ramips_mt7621=y" >> .config
           echo "CONFIG_TARGET_ramips_mt7621_DEVICE_phicomm_k2p=y" >> .config
           echo "CONFIG_SIGNED_PACKAGES=y" >> .config
           make defconfig
-
+          
       - name: Build usign tool
         run: |
           cd openwrt
@@ -30,12 +35,12 @@ jobs:
         run: |
           cd openwrt
           # 使用 usign 工具生成密钥对
-          ./staging_dir/host/bin/usign -G -p my_key.pub -s my_key.key
-
-          echo "========= PRIVATE KEY (my_key.key) - 请复制以下所有内容并保存 =========="
-          cat my_key.key
+          ./staging_dir/host/bin/usign -G -p my_repo.pub -s my_repo.key
+          
+          echo "========= PRIVATE KEY (my_repo.key) - 请复制以下所有内容并保存 =========="
+          cat my_repo.key
           echo "========================================================================"
           echo ""
-          echo "========= PUBLIC KEY (my_key.pub) - 请复制以下所有内容并保存 ==========="
-          cat my_key.pub
+          echo "========= PUBLIC KEY (my_repo.pub) - 请复制以下所有内容并保存 ==========="
+          cat my_repo.pub
           echo "========================================================================"
