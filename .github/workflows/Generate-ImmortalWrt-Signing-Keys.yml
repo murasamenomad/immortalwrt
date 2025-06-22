@@ -14,19 +14,21 @@ jobs:
 
     steps:
       - name: 'Install Build Dependencies'
+        # 覆盖默认的工作目录设置，因为此时 ./openwrt 目录还不存在。
+        # '.' 代表在工作空间的根目录执行此步骤。
+        working-directory: .
         run: |
           sudo apt-get update
           sudo apt-get install -y build-essential git libncurses5-dev libssl-dev ccache
-        # working-directory 不会应用于此步骤
 
       - name: 'Checkout ImmortalWrt Source on openwrt-24.10 branch'
         uses: actions/checkout@v4
         with:
           repository: 'immortalwrt/immortalwrt'
-          # 使用 'ref' 参数来指定分支、标签或 commit SHA
           ref: 'openwrt-24.10'
-          path: 'openwrt' # 将源码克隆到 openwrt 目录
+          path: 'openwrt' # 此步骤执行后，./openwrt 目录才被创建
 
+      # 后续所有步骤将自动使用 'defaults' 中设置的 ./openwrt 工作目录
       - name: 'Prepare Build Environment'
         run: |
           ./scripts/feeds update -a
@@ -43,6 +45,7 @@ jobs:
           echo "Signing keys generated successfully in the 'openwrt' directory."
 
       - name: 'Upload Keys as Artifact'
+        # upload-artifact action 默认从根目录开始，所以它的路径不受 'defaults' 影响
         uses: actions/upload-artifact@v4
         with:
           name: immortalwrt-signing-keys-24.10
