@@ -61,9 +61,10 @@ jobs:
     - name: Sanitize Repository (Remove Signatures)
       run: |
         cd openwrt
-        echo "Sanitizing package repository by removing all '.sig' files..."
-        find ./bin/packages -type f -name "Packages.sig" -print -delete
-        echo "Sanitization complete. Repository is now unsigned."
+        echo "Sanitizing ALL package repositories by removing all '.sig' files..."
+        # 从整个 bin/ 目录开始递归查找并删除，确保无一遗漏
+        find ./bin -type f -name "Packages.sig" -print -delete
+        echo "Sanitization complete. Entire repository is now unsigned."
 
     - name: Upload Build Artifacts
       if: always()
