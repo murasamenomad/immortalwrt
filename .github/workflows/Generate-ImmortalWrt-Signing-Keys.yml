@@ -1,4 +1,4 @@
-name: 'Generate ImmortalWrt Signing Keys'
+name: 'Generate ImmortalWrt Signing Keys (branch: openwrt-24.10)'
 
 on:
   workflow_dispatch: # Allow manual trigger from the Actions tab
@@ -8,44 +8,36 @@ jobs:
     runs-on: ubuntu-latest
 
     # 为此作业中的所有 'run' 命令设置默认工作目录
-    # 这可以避免在每个步骤中都使用 'cd' 命令，从而解决了路径问题
     defaults:
       run:
         working-directory: ./openwrt
 
     steps:
       - name: 'Install Build Dependencies'
-        # 此步骤在工作目录设置之前运行，因为它在源码克隆之前
         run: |
           sudo apt-get update
           sudo apt-get install -y build-essential git libncurses5-dev libssl-dev ccache
         # working-directory 不会应用于此步骤
 
-      - name: 'Checkout ImmortalWrt Source'
+      - name: 'Checkout ImmortalWrt Source on openwrt-24.10 branch'
         uses: actions/checkout@v4
         with:
           repository: 'immortalwrt/immortalwrt'
-          REPO_BRANCH: openwrt-24.10
+          # 使用 'ref' 参数来指定分支、标签或 commit SHA
+          ref: 'openwrt-24.10'
           path: 'openwrt' # 将源码克隆到 openwrt 目录
-          # 不指定分支，默认使用主分支。可以按需添加 branch: 'openwrt-23.05' 等
 
       - name: 'Prepare Build Environment'
-        # 由于设置了 defaults，此步骤及后续步骤会自动在 ./openwrt 目录中执行
         run: |
           ./scripts/feeds update -a
           ./scripts/feeds install -a
-          # 创建一个默认的 .config 文件，这是避免交互式 menuconfig 的关键
           make defconfig
 
       - name: 'Build Host Tools (including usign)'
-        # 使用 -j 来加速编译，V=s 显示详细日志
-        # 'tools/install' 是编译所有主机工具的正确目标
         run: |
           make tools/install -j$(nproc) V=s
 
       - name: 'Generate Key Pair'
-        # 现在我们已经在 openwrt 目录中，可以直接调用 staging_dir 中的 usign
-        # 生成的密钥文件 (key-build, key-build.pub) 会被创建在 openwrt 目录下
         run: |
           ./staging_dir/host/bin/usign -G -p key-build.pub -s key-build
           echo "Signing keys generated successfully in the 'openwrt' directory."
@@ -53,9 +45,7 @@ jobs:
       - name: 'Upload Keys as Artifact'
         uses: actions/upload-artifact@v4
         with:
-          name: immortalwrt-signing-keys
-          # 从工作空间根目录指定路径
-          # 因为密钥生成在 openwrt 目录中，所以路径是 'openwrt/key-build*'
+          name: immortalwrt-signing-keys-24.10
           path: |
             openwrt/key-build
             openwrt/key-build.pub
