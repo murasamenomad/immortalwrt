@@ -25,6 +25,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: 'immortalwrt/immortalwrt'
+          REPO_BRANCH: openwrt-24.10
           path: 'openwrt' # 将源码克隆到 openwrt 目录
           # 不指定分支，默认使用主分支。可以按需添加 branch: 'openwrt-23.05' 等
 
