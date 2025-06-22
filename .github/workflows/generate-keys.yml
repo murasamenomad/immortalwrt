@@ -1,54 +1,72 @@
-name: Generate usign Signing Keys
+# .github/workflows/generate-keys.yml
+name: 'Generate ImmortalWrt Signing Keys'
 
 on:
-  # 允许您从 Actions 标签页手动触发此工作流
   workflow_dispatch:
-
-env:
-  # 将终端类型设置为 dumb，以防止在非交互式环境中出现问题
-  TERM: dumb
 
 jobs:
   generate-keys:
     runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ./openwrt
+
     steps:
-      # 步骤 1: 安装编译所需的基本依赖
-      - name: Install build dependencies
+      - name: 'Install Build Dependencies'
+        working-directory: .
         run: |
           sudo apt-get update
-          sudo apt-get install -y build-essential git libncurses5-dev libssl-dev
+          sudo apt-get install -y \
+            build-essential clang flex bison g++ gawk gcc-multilib g++-multilib \
+            gettext git libncurses5-dev libssl-dev rsync \
+            unzip zlib1g-dev file wget ccache libelf-dev python3
 
-      # 步骤 2: 克隆 ImmortalWrt 源码
-      - name: Clone ImmortalWrt source
-        run: git clone --depth 1 https://github.com/immortalwrt/immortalwrt.git openwrt
+      - name: 'Checkout ImmortalWrt Source'
+        uses: actions/checkout@v4
+        with:
+          repository: 'immortalwrt/immortalwrt'
+          ref: 'openwrt-24.10'
+          path: 'openwrt'
 
-      # 步骤 3: 准备构建环境 (已修正缩进)
-      # 此步骤更新并安装 feeds，然后创建默认的.config 文件
-      - name: Prepare build environment
+      - name: 'Prepare Build Environment'
+        env:
+          TERM: dumb  # 关键修复：防止终端交互问题
         run: |
-          cd openwrt
           ./scripts/feeds update -a
           ./scripts/feeds install -a
+          
+          # 确保启用包签名配置
+          echo "CONFIG_SIGNED_PACKAGES=y" >> .config
+          echo "CONFIG_BUILDBOT=y" >> .config
           make defconfig
 
-      # 步骤 4: 编译所有主机工具
-      # 使用 'tools/install' 目标，这是一个更标准、更可靠的命令
-      - name: Build host tools (including usign)
+      - name: 'Build Essential Components'
         run: |
-          cd openwrt
-          make tools/install -j$(nproc) V=s
+          # 构建工具链和必要组件
+          make toolchain/install -j$(nproc)
+          make -j$(nproc) tools/install
 
-      # 步骤 5: 使用新编译的 usign 工具生成密钥对 (已修正缩进)
-      - name: Generate key pair
+      - name: 'Generate Signing Keys'
         run: |
-          ./openwrt/staging_dir/host/bin/usign -G -p key-build.pub -s key-build
-          echo "密钥对 key-build (私钥) 和 key-build.pub (公钥) 已成功生成。"
+          # 直接调用usign生成密钥
+          ./staging_dir/host/bin/usign -G -s ./key-build -p ./key-build.pub
+          echo "签名密钥已生成："
+          ls -l key-build*
 
-      # 步骤 6: 将生成的密钥文件作为产物上传，供您下载
-      - name: Upload keys as artifact
+      - name: 'Verify Keys'
+        run: |
+          if [ -f "key-build" ] && [ -f "key-build.pub" ]; then
+            echo "✅ 密钥验证成功"
+            ./staging_dir/host/bin/usign -V -p key-build.pub -m key-build
+          else
+            echo "❌ 密钥生成失败"
+            exit 1
+          fi
+
+      - name: 'Upload Keys as Artifact'
         uses: actions/upload-artifact@v4
         with:
-          name: signing-keys
+          name: immortalwrt-signing-keys
           path: |
-            key-build
-            key-build.pub
+            openwrt/key-build
+            openwrt/key-build.pub
