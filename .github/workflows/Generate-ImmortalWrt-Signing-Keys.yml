@@ -38,12 +38,12 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: 'immortalwrt/immortalwrt'
-          # **重要：已更新为你的目标分支**
+          # **重要：指定你的目标分支**
           ref: 'openwrt-24.10'
           # 将源码克隆到 'openwrt' 目录，后续步骤将在此目录中操作
           path: 'openwrt'
 
-      # 步骤 3: 准备构建环境 (关键步骤)
+      # 步骤 3: 准备构建环境 (关键基础)
       - name: 'Prepare Build Environment'
         run: |
           # 更新并安装所有 feeds (软件源)
@@ -52,21 +52,21 @@ jobs:
           # 基于默认配置生成一个完整的 .config 文件，这是非交互式构建的前提
           make defconfig
 
-      # 步骤 4: 显式编译所有主机工具 (关键修复)
-      - name: 'Build Host Tools (including usign)'
+      # 步骤 4: 显式编译并安装 usign 主机工具 (关键修复)
+      - name: 'Build and Install usign Host Tool'
         run: |
-          # 在 openwrt-24.10 分支, 'make package/index' 不会自动构建 usign。
-          # 我们需要明确地运行 'make tools/install' 来编译所有主机工具，
-          # 确保 usign 在下一步被调用前已存在。
-          make tools/install -j$(nproc) V=s
-      
+          # 这是一个更精确、更可靠的目标，专门用于编译 usign 并将其安装到 staging_dir。
+          # 'tools/usign/install' 会确保 usign 被正确放置到下一步骤所需的位置。
+          make tools/usign/install -j$(nproc) V=s
+
       # 步骤 5: 创建包索引以触发密钥生成
       - name: 'Create Package Index to Trigger Key Generation'
         run: |
-          # 现在 usign 工具已经存在了。
+          # 现在 usign 工具已经存在于 staging_dir/host/bin 中。
           # 'make package/index' 在执行签名时会调用 usign。
-          # usign 发现没有密钥，就会在 'key-build' 目录中生成它们。
-          make package/index -j$(nproc) V=s
+          # 默认配置下，usign 发现没有密钥，就会在源码根目录下的 'key-build' 目录中自动生成它们。
+          # 这是最符合 OpenWrt 构建逻辑的方式。
+          make package/index
 
       # 步骤 6: 验证并列出生成的密钥 (用于调试和确认)
       - name: 'Verify and List Generated Keys'
