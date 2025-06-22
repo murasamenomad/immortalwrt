@@ -22,28 +22,26 @@ jobs:
       - name: Clone ImmortalWrt source
         run: git clone --depth 1 https://github.com/immortalwrt/immortalwrt.git openwrt
 
-      # 步骤 3: 准备构建环境
+      # 步骤 3: 准备构建环境 (已修正缩进)
       # 此步骤更新并安装 feeds，然后创建默认的.config 文件
       - name: Prepare build environment
         run: |
           cd openwrt
-         ./scripts/feeds update -a
-         ./scripts/feeds install -a
+          ./scripts/feeds update -a
+          ./scripts/feeds install -a
           make defconfig
 
-      # 步骤 4: 编译所有主机工具 (关键修复步骤)
+      # 步骤 4: 编译所有主机工具
       # 使用 'tools/install' 目标，这是一个更标准、更可靠的命令
-      # 它会编译包括 usign 在内的所有构建所需的主机端工具
       - name: Build host tools (including usign)
         run: |
           cd openwrt
           make tools/install -j$(nproc) V=s
 
-      # 步骤 5: 使用新编译的 usign 工具生成密钥对
+      # 步骤 5: 使用新编译的 usign 工具生成密钥对 (已修正缩进)
       - name: Generate key pair
         run: |
-          # 编译好的工具位于 staging_dir 目录中
-         ./openwrt/staging_dir/host/bin/usign -G -p key-build.pub -s key-build
+          ./openwrt/staging_dir/host/bin/usign -G -p key-build.pub -s key-build
           echo "密钥对 key-build (私钥) 和 key-build.pub (公钥) 已成功生成。"
 
       # 步骤 6: 将生成的密钥文件作为产物上传，供您下载
