@@ -9,7 +9,7 @@ on:
 env:
   TZ: Asia/Shanghai
   # 关键修正: 指向你自己的、已经修改好硬件信息的仓库
-  REPO_URL: https://github.com/你的用户名/immortalwrt.git
+  REPO_URL: https://github.com/murasamenomad/immortalwrt.git
   # 关键修正: 切换到 immortalwrt-24.10 稳定分支
   REPO_BRANCH: openwrt-24.10 # <-- 正确的名称
   CONFIG_FILE: .config
