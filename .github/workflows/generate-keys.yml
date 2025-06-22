@@ -1,19 +1,25 @@
-name: Generate Persistent Signing Keys
+name: Generate Persistent Signing Keys (Corrected)
+
 on:
-  workflow_dispatch:
+  workflow_dispatch: # 允许手动触发
+
 jobs:
   generate:
     runs-on: ubuntu-22.04
     steps:
       - name: Clone ImmortalWrt source and build usign
         run: |
-          git clone --depth 1 -b immortalwrt-24.10 https://github.com/immortalwrt/immortalwrt.git openwrt
+          # --- 【核心修正】: 使用正确的分支名 openwrt-24.10 ---
+          git clone --depth 1 -b openwrt-24.10 https://github.com/immortalwrt/immortalwrt.git openwrt
           cd openwrt
           make tools/usign/compile
+
       - name: Generate and display new key pair
         run: |
           cd openwrt
+          # 使用 usign 工具生成密钥对
           ./staging_dir/host/bin/usign -G -p my_repo.pub -s my_repo.key
+          
           echo "========= PRIVATE KEY (my_repo.key) - 请复制以下所有内容并保存 =========="
           cat my_repo.key
           echo "========================================================================"
