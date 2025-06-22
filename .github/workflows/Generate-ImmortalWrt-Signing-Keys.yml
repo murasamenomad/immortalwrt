@@ -7,28 +7,25 @@ jobs:
   generate-keys:
     runs-on: ubuntu-latest
 
-    # 为此作业中的所有 'run' 命令设置默认工作目录
     defaults:
       run:
         working-directory: ./openwrt
 
     steps:
       - name: 'Install Build Dependencies'
-        # 覆盖默认的工作目录设置，因为此时 ./openwrt 目录还不存在。
-        # '.' 代表在工作空间的根目录执行此步骤。
-        working-directory: .
+        working-directory: . # 在根目录执行
         run: |
           sudo apt-get update
-          sudo apt-get install -y build-essential git libncurses5-dev libssl-dev ccache
+          # 添加 libelf-dev 等一些常见的、可能被遗漏的依赖
+          sudo apt-get install -y build-essential git libncurses5-dev libssl-dev ccache libelf-dev
 
       - name: 'Checkout ImmortalWrt Source on openwrt-24.10 branch'
         uses: actions/checkout@v4
         with:
           repository: 'immortalwrt/immortalwrt'
           ref: 'openwrt-24.10'
-          path: 'openwrt' # 此步骤执行后，./openwrt 目录才被创建
+          path: 'openwrt'
 
-      # 后续所有步骤将自动使用 'defaults' 中设置的 ./openwrt 工作目录
       - name: 'Prepare Build Environment'
         run: |
           ./scripts/feeds update -a
@@ -37,7 +34,26 @@ jobs:
 
       - name: 'Build Host Tools (including usign)'
         run: |
+          # 使用 'V=s' 参数可以在出错时打印更详细的日志，帮助排查问题
           make tools/install -j$(nproc) V=s
+
+      # --- 关键的调试步骤 ---
+      - name: 'Verify usign Installation'
+        run: |
+          echo "Verifying if usign exists..."
+          # 检查 usign 文件是否存在于预期路径
+          if [ -f "./staging_dir/host/bin/usign" ]; then
+            echo "SUCCESS: usign found at ./staging_dir/host/bin/usign"
+            # 列出文件属性，确认其为可执行文件
+            ls -l ./staging_dir/host/bin/usign
+          else
+            echo "ERROR: usign not found in ./staging_dir/host/bin/"
+            echo "Listing contents of ./staging_dir/host/bin/ to debug:"
+            # 如果文件不存在，列出该目录下的所有内容，帮助我们看到底生成了什么
+            ls -l ./staging_dir/host/bin/
+            # 以错误码退出，强制让工作流失败，而不是在下一步才失败
+            exit 1
+          fi
 
       - name: 'Generate Key Pair'
         run: |
@@ -45,7 +61,6 @@ jobs:
           echo "Signing keys generated successfully in the 'openwrt' directory."
 
       - name: 'Upload Keys as Artifact'
-        # upload-artifact action 默认从根目录开始，所以它的路径不受 'defaults' 影响
         uses: actions/upload-artifact@v4
         with:
           name: immortalwrt-signing-keys-24.10
