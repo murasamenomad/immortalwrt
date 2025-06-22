@@ -1,7 +1,7 @@
-#.github/workflows/generate-keys.yml
+# .github/workflows/generate-keys.yml
 
 # 工作流名称
-name: 'Generate ImmortalWrt Signing Keys (branch: openwrt-24.10)'
+name: 'Generate ImmortalWrt Signing Keys (Corrected Syntax)'
 
 # 触发条件：允许从 GitHub Actions 页面手动触发
 on:
@@ -14,10 +14,9 @@ jobs:
     runs-on: ubuntu-latest
 
     # 为此作业中的所有 'run' 命令设置默认的工作目录
-    # 这样后续步骤就不需要频繁地 'cd openwrt'
     defaults:
       run:
-        working-directory:./openwrt
+        working-directory: ./openwrt
 
     steps:
       # 步骤 1: 安装编译所需的所有依赖
@@ -25,10 +24,7 @@ jobs:
         # 覆盖默认工作目录，因为此时 './openwrt' 还不存在
         working-directory: .
         run: |
-          # 更新软件包列表
           sudo apt-get update
-          # 安装 ImmortalWrt 官方 README 中推荐的完整依赖包列表
-          # 这是确保所有主机工具（包括 usign）能被成功编译的关键
           sudo apt-get install -y \
             build-essential clang flex bison g++ gawk gcc-multilib g++-multilib \
             gettext git libncurses5-dev libssl-dev rsync \
@@ -39,52 +35,30 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: 'immortalwrt/immortalwrt'
-          # 重要：指定你的目标分支
           ref: 'openwrt-24.10'
-          # 将源码克隆到 'openwrt' 目录，后续步骤将在此目录中操作
           path: 'openwrt'
 
       # 步骤 3: 准备构建环境 (非交互式构建的基础)
       - name: 'Prepare Build Environment'
         run: |
-          # 更新并安装所有 feeds (软件源)
-         ./scripts/feeds update -a
-         ./scripts/feeds install -a
-          # 基于默认配置生成一个完整的.config 文件，这是非交互式构建的前提
-          # 默认配置中已包含 CONFIG_SIGNED_PACKAGES=y
+          ./scripts/feeds update -a
+          ./scripts/feeds install -a
           make defconfig
 
       # 步骤 4: 构建并安装工具链及所有主机工具 (关键修复)
       - name: 'Build and Install Toolchain & Host Tools'
         run: |
-          # 这是最关键的修正。我们使用 'make toolchain/install' 这个高层级目标。
-          # 它会作为依赖项，自动编译所有必需的主机工具 (包括 usign)，
-          # 并将它们正确地安装到 'staging_dir/host/' 目录下。
-          # 这是一个更底层、更可靠的准备步骤，确保了 usign 的存在。
           make toolchain/install -j$(nproc) V=s
 
-      # 步骤 5: 验证 usign 是否已成功安装 (防御性编程)
-      - name: 'Verify usign Installation'
-        run: |
-          echo "Verifying if usign exists..."
-          if [ -f "./staging_dir/host/bin/usign" ]; then
-            echo "SUCCESS: usign found at./staging_dir/host/bin/usign"
-            ls -l./staging_dir/host/bin/usign
-          else
-            echo "ERROR: usign not found in./staging_dir/host/bin/"
-            echo "This indicates a failure in the 'toolchain/install' step."
-            exit 1
-          fi
-
-      # 步骤 6: 创建包索引以触发密钥生成
+      # 步骤 5: 创建包索引以触发密钥生成
       - name: 'Create Package Index to Trigger Key Generation'
         run: |
-          # 因为上一步已经确保 usign 工具存在，这一步现在可以成功执行。
-          # 'make package/index' 会调用 usign，usign 发现没有密钥时会自动在 'key-build' 目录中生成。
-          # 这是最符合 OpenWrt 构建逻辑的密钥生成方式。
+          # 'make package/index' 会调用 usign，usign 发现没有密钥时会自动在 'key-build' 目录中生成
           make package/index V=s
 
-      # 步骤 7: 验证生成的密钥 (用于调试和确认)
+      # --- 【核心修正】：将验证和上传拆分为两个独立的步骤 ---
+
+      # 步骤 6: 验证生成的密钥 (用于调试和确认)
       - name: 'Verify Generated Keys'
         run: |
           echo "Verifying generated keys in 'key-build' directory..."
@@ -97,12 +71,10 @@ jobs:
             exit 1
           fi
 
-      # 步骤 8: 将生成的密钥目录作为产物上传
+      # 步骤 7: 将生成的密钥目录作为产物上传
       - name: 'Upload Keys as Artifact'
         uses: actions/upload-artifact@v4
         with:
-          # 上传的产物名称
           name: immortalwrt-signing-keys-24.10
-          # 需要上传的目录路径。
-          # 注意：`upload-artifact` 的路径是相对于工作空间根目录的。
-          path:./openwrt/key-build/
+          # 注意：这里的路径是相对于工作空间根目录的
+          path: ./openwrt/key-build/
