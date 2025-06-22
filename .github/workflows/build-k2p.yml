@@ -8,7 +8,7 @@ on:
 
 env:
   TZ: Asia/Shanghai
-  REPO_URL: https://github.com/你的用户名/immortalwrt.git
+  REPO_URL: https://github.com/murasamenomad/immortalwrt.git
   REPO_BRANCH: openwrt-24.10
   CONFIG_FILE: .config
 
