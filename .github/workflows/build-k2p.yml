@@ -1,23 +1,20 @@
 #
-# GitHub Actions: 最终方案 · 稳定分支实现版
+# GitHub Actions: 最终方案 · 权威实现版
 #
-name: Build ImmortalWrt for K2P (Stable Branch Implementation)
+name: Build ImmortalWrt for K2P (Authoritative Implementation)
 
 on:
   workflow_dispatch:
 
 env:
   TZ: Asia/Shanghai
-  # 关键修正: 指向你自己的、已经修改好硬件信息的仓库
-  REPO_URL: https://github.com/murasamenomad/immortalwrt.git
-  # 关键修正: 切换到 immortalwrt-24.10 稳定分支
-  REPO_BRANCH: openwrt-24.10 # <-- 正确的名称
+  REPO_URL: https://github.com/你的用户名/immortalwrt.git
+  REPO_BRANCH: openwrt-24.10
   CONFIG_FILE: .config
 
 jobs:
   build:
     runs-on: ubuntu-22.04
-
     steps:
     - name: Checkout repository
       uses: actions/checkout@v4
@@ -32,7 +29,6 @@ jobs:
 
     - name: Clone Patched ImmortalWrt source
       run: |
-        # 只克隆你的主源码，不再需要 sed
         git clone --depth 1 -b $REPO_BRANCH $REPO_URL openwrt
         
     - name: Cache downloaded sources (dl)
@@ -41,25 +37,33 @@ jobs:
         path: openwrt/dl
         key: ${{ runner.os }}-dl-${{ env.REPO_BRANCH }}-${{ hashFiles('openwrt/feeds.conf.default')}}
 
-    - name: Update, install feeds and apply configuration
+    - name: Prepare build environment
       run: |
         export TERM=dumb
         cd openwrt
+        cp ../.config .config
         ./scripts/feeds update -a
         ./scripts/feeds install -a
-        cp ../.config .config
         make defconfig
+        make download -j$(nproc)
 
-    - name: Compile Firmware and Create Package Index
+    - name: Compile main firmware
+      id: compile
       run: |
         cd openwrt
-        # 第一步: 执行标准编译, 生成固件和所有独立的 .ipk 软件包
         echo "Compiling firmware and packages..."
-        make -j$(nproc) V=s 2>&1 | tee build.log || (grep -B 5 -A 20 -i "error" build.log && exit 1)
-        # 第二步: 调用 package/index 目标, 触发 opkg 仓库索引、签名和密钥生成
-        echo "Creating opkg package index..."
-        make package/index V=s
+        make -j$(nproc) V=s 2>&1 | tee build.log || (grep -B 10 -A 30 -i "error" build.log && exit 1)
+        echo "COMPILATION_STATUS=success" >> $GITHUB_ENV
 
+    - name: Create Package Index and Keys
+      # 只有在主编译成功后才执行此步骤
+      if: env.COMPILATION_STATUS == 'success'
+      run: |
+        cd openwrt
+        echo "Creating opkg package index..."
+        # 使用单线程执行此关键步骤，以确保最大稳定性和最清晰的日志
+        make package/index V=s
+        
     - name: Upload Build Artifacts
       if: always()
       uses: actions/upload-artifact@v4
