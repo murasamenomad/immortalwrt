@@ -1,56 +1,53 @@
-name: Generate usign Signing Keys
+# .github/workflows/generate-and-capture-keys.yml
+name: 'ONCE-OFF: Generate and Capture Signing Keys'
 
 on:
-  # 允许您从 Actions 标签页手动触发此工作流
-  workflow_dispatch:
-
-env:
-  # 将终端类型设置为 dumb，以防止在非交互式环境中出现问题
-  TERM: dumb
+  workflow_dispatch: # 允许手动触发
 
 jobs:
-  generate-keys:
-    runs-on: ubuntu-latest
+  generate_and_capture:
+    runs-on: ubuntu-22.04
     steps:
-      # 步骤 1: 安装编译 usign 所需的基本依赖
-      - name: Install build dependencies
+      - name: 'Checkout ImmortalWrt Source'
         run: |
-          sudo apt-get update
-          sudo apt-get install -y build-essential git libncurses5-dev libssl-dev
-
-      # 步骤 2: 克隆 ImmortalWrt 源码
-      - name: Clone ImmortalWrt source
-        run: git clone --depth 1 https://github.com/immortalwrt/immortalwrt.git openwrt
-
-      # 步骤 3: 准备构建环境 (关键修复步骤)
-      # 此步骤更新软件包源定义，并创建一个默认的.config 文件。
-      # 这可以解决依赖缺失的警告，并阻止构建系统尝试启动交互式菜单。
-      - name: Prepare build environment
-        run: |
+          git clone --depth 1 -b openwrt-24.10 https://github.com/immortalwrt/immortalwrt.git openwrt
           cd openwrt
-        ./scripts/feeds update -a
-        ./scripts/feeds install -a
+          
+      - name: 'Prepare Build Environment (Crucial Step)'
+        working-directory: ./openwrt
+        run: |
+          # 更新并安装所有 feeds，这是生成完整 .config 的前提
+          ./scripts/feeds update -a
+          ./scripts/feeds install -a
+          
+          # 复制你的目标设备的默认配置作为基础
+          # 这会生成一个完整的、非交互式的 .config 文件
+          # 你可以根据你的设备修改 'defconfig_ramips_mt7621'
+          cp defconfig_ramips_mt7621 .config
+          
+          # (可选但推荐) 确保所有依赖都满足
           make defconfig
 
-      # 步骤 4: 仅编译 'usign' 主机工具
-      # 这是一个更精确的编译目标，只构建我们需要的工具。
-      - name: Build usign host tool
+      - name: 'Build Signing Tool and Generate Keys'
+        working-directory: ./openwrt
         run: |
-          cd openwrt
-          make tools/usign/compile V=s
+          # 这个命令会确保工具链和 usign 都被编译
+          # 在这个过程中，由于 CONFIG_SIGNED_PACKAGES=y 默认存在，
+          # 并且我们没有提供密钥，make 会自动为我们生成一套
+          # 并放置在 <build_root>/keys/ 目录下
+          make tools/usign/compile
 
-      # 步骤 5: 使用新编译的 usign 工具生成密钥对
-      - name: Generate key pair
+      - name: 'Capture The Generated Keys'
         run: |
-          # 编译好的工具位于 staging_dir 目录中
-        ./openwrt/staging_dir/host/bin/usign -G -p key-build.pub -s key-build
-          echo "密钥对 key-build (私钥) 和 key-build.pub (公钥) 已成功生成。"
+          # 将生成的密钥目录复制到一个临时区域，准备作为 Artifact 上传
+          # 这是整个流程的核心！
+          mkdir -p captured_keys
+          cp -r openwrt/keys/* captured_keys/
+          echo "Keys have been captured successfully. Listing contents:"
+          ls -l captured_keys/
 
-      # 步骤 6: 将生成的密钥文件作为产物上传，供您下载
-      - name: Upload keys as artifact
+      - name: 'Upload Keys as Artifact'
         uses: actions/upload-artifact@v4
         with:
-          name: signing-keys
-          path: |
-            key-build
-            key-build.pub
+          name: immortalwrt-signing-keys
+          path: captured_keys/
