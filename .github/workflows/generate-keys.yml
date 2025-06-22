@@ -12,7 +12,7 @@ jobs:
   generate-keys:
     runs-on: ubuntu-latest
     steps:
-      # 步骤 1: 安装编译 usign 所需的基本依赖
+      # 步骤 1: 安装编译所需的基本依赖
       - name: Install build dependencies
         run: |
           sudo apt-get update
@@ -22,28 +22,28 @@ jobs:
       - name: Clone ImmortalWrt source
         run: git clone --depth 1 https://github.com/immortalwrt/immortalwrt.git openwrt
 
-      # 步骤 3: 准备构建环境 (关键修复步骤)
-      # 此步骤更新软件包源定义，并创建一个默认的.config 文件。
-      # 这可以解决依赖缺失的警告，并阻止构建系统尝试启动交互式菜单。
+      # 步骤 3: 准备构建环境
+      # 此步骤更新并安装 feeds，然后创建默认的.config 文件
       - name: Prepare build environment
         run: |
           cd openwrt
-          ./scripts/feeds update -a
-          ./scripts/feeds install -a
+         ./scripts/feeds update -a
+         ./scripts/feeds install -a
           make defconfig
 
-      # 步骤 4: 仅编译 'usign' 主机工具
-      # 这是一个更精确的编译目标，只构建我们需要的工具。
-      - name: Build usign host tool
+      # 步骤 4: 编译所有主机工具 (关键修复步骤)
+      # 使用 'tools/install' 目标，这是一个更标准、更可靠的命令
+      # 它会编译包括 usign 在内的所有构建所需的主机端工具
+      - name: Build host tools (including usign)
         run: |
           cd openwrt
-          make tools/usign/compile V=s
+          make tools/install -j$(nproc) V=s
 
       # 步骤 5: 使用新编译的 usign 工具生成密钥对
       - name: Generate key pair
         run: |
           # 编译好的工具位于 staging_dir 目录中
-          ./openwrt/staging_dir/host/bin/usign -G -p key-build.pub -s key-build
+         ./openwrt/staging_dir/host/bin/usign -G -p key-build.pub -s key-build
           echo "密钥对 key-build (私钥) 和 key-build.pub (公钥) 已成功生成。"
 
       # 步骤 6: 将生成的密钥文件作为产物上传，供您下载
