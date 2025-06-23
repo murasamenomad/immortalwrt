@@ -20,15 +20,22 @@ jobs:
 
     steps:
       # 步骤 1: 安装编译所需的所有依赖
+      # 覆盖默认工作目录，因为此时 './openwrt' 还不存在
+      # 安装 ImmortalWrt 官方 README 中推荐的完整依赖包列表
+      # 这是确保所有主机工具（包括 usign）能被成功编译的关键
       - name: 'Install All Build Dependencies'
-        # 覆盖默认工作目录，因为此时 './openwrt' 还不存在
         working-directory: .
         run: |
           sudo apt-get update
           sudo apt-get install -y \
-            build-essential clang flex bison g++ gawk gcc-multilib g++-multilib \
-            gettext git libncurses5-dev libssl-dev rsync \
-            unzip zlib1g-dev file wget ccache libelf-dev
+            ack antlr3 asciidoc autoconf automake autopoint binutils bison build-essential \
+            bzip2 ccache clang cmake cpio curl device-tree-compiler ecj fastjar flex gawk gettext gcc-multilib \
+            g++-multilib git gnutls-dev gperf haveged help2man intltool lib32gcc-s1 libc6-dev-i386 libelf-dev \
+            libglib2.0-dev libgmp3-dev libltdl-dev libmpc-dev libmpfr-dev libncurses-dev libpython3-dev \
+            libreadline-dev libssl-dev libtool libyaml-dev libz-dev lld llvm lrzsz mkisofs msmtp nano \
+            ninja-build p7zip p7zip-full patch pkgconf python3 python3-pip python3-ply python3-docutils \
+            python3-pyelftools qemu-utils re2c rsync scons squashfs-tools subversion swig texinfo uglifyjs \
+            upx-ucl unzip vim wget xmlto xxd zlib1g-dev zstd
 
       # 步骤 2: 克隆 ImmortalWrt 源码 (目标分支 openwrt-24.10)
       - name: 'Checkout ImmortalWrt Source'
@@ -50,15 +57,28 @@ jobs:
         run: |
           make toolchain/install -j$(nproc) V=s
 
-      # 步骤 5: 创建包索引以触发密钥生成
+      # 步骤 5: 验证 usign 是否已成功安装 (防御性编程)
+      - name: 'Verify usign Installation'
+        run: |
+          echo "Verifying if usign exists..."
+          if [ -f "./staging_dir/host/bin/usign" ]; then
+            echo "SUCCESS: usign found at./staging_dir/host/bin/usign"
+            ls -l./staging_dir/host/bin/usign
+          else
+            echo "ERROR: usign not found in./staging_dir/host/bin/"
+            echo "This indicates a failure in the 'toolchain/install' step."
+            exit 1
+          fi
+          
+      # 步骤 6: 创建包索引以触发密钥生成
+      # 因为上一步已经确保 usign 工具存在，这一步现在可以成功执行。
+      # 'make package/index' 会调用 usign，usign 发现没有密钥时会自动在 'key-build' 目录中生成。
+      # 这是最符合 OpenWrt 构建逻辑的密钥生成方式。
       - name: 'Create Package Index to Trigger Key Generation'
         run: |
-          # 'make package/index' 会调用 usign，usign 发现没有密钥时会自动在 'key-build' 目录中生成
           make package/index V=s
 
-      # --- 【核心修正】：将验证和上传拆分为两个独立的步骤 ---
-
-      # 步骤 6: 验证生成的密钥 (用于调试和确认)
+      # 步骤 7: 验证生成的密钥 (用于调试和确认)
       - name: 'Verify Generated Keys'
         run: |
           echo "Verifying generated keys in 'key-build' directory..."
@@ -71,7 +91,20 @@ jobs:
             exit 1
           fi
 
-      # 步骤 7: 将生成的密钥目录作为产物上传
+      # 步骤 7: 验证生成的密钥 (用于调试和确认)
+      - name: 'Verify Generated Keys'
+        run: |
+          echo "Verifying generated keys in 'key-build' directory..."
+          if [ -f "./staging_dir/host/bin/usign" ]; then
+            echo "SUCCESS: usign found at./staging_dir/host/bin/usign""
+            ls -l./staging_dir/host/bin/usign
+          else
+            echo "ERROR: usign not found in./staging_dir/host/bin/"
+            echo "This indicates a failure in the 'toolchain/install' step."
+            exit 1
+          fi
+
+      # 步骤 8: 将生成的密钥目录作为产物上传
       - name: 'Upload Keys as Artifact'
         uses: actions/upload-artifact@v4
         with:
